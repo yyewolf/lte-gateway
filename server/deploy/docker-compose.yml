@@ -1,0 +1,11 @@
+# The server must reach the gateway over the tailnet, and the gateway must
+# reach the server's UDP port. Running on a host that is already on the
+# tailnet with host networking is the simplest setup.
+services:
+  ltegtw:
+    build: ..
+    restart: unless-stopped
+    network_mode: host
+    volumes:
+      - ./config.yaml:/config/config.yaml:ro
+      - ./recordings:/data/recordings

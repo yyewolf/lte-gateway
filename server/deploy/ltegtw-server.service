@@ -1,0 +1,19 @@
+[Unit]
+Description=LTE gateway Discord bridge
+Wants=network-online.target tailscaled.service
+After=network-online.target tailscaled.service
+
+[Service]
+DynamicUser=yes
+StateDirectory=ltegtw
+WorkingDirectory=/var/lib/ltegtw
+ExecStart=/usr/local/bin/ltegtw-server -config /etc/ltegtw/config.yaml
+Restart=on-failure
+RestartSec=5
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+
+[Install]
+WantedBy=multi-user.target
