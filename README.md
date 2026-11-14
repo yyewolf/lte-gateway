@@ -11,4 +11,4 @@ a separate machine on the tailnet.
 |---|---|
 | `firmware/` | ESP-IDF firmware for the gateway board |
 | `hardware/` | KiCad project, BOM, fabrication files (to come) |
-| `server/` | Client/relay service for the server side (to come) |
+| `server/` | Go server: Discord bridge for SMS, calls and call audio ([README](server/README.md)) |
