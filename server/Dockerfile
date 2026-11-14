@@ -7,7 +7,7 @@ WORKDIR /src
 COPY go.mod go.sum ./
 RUN go mod download
 # libdave (Discord voice end-to-end encryption), prebuilt release from discord/libdave
-RUN NON_INTERACTIVE=1 sh "$(go env GOMODCACHE)/github.com/disgoorg/godave@v0.3.0/scripts/libdave_install.sh" v1.1.0
+RUN NON_INTERACTIVE=1 SHELL=/bin/sh sh "$(go env GOMODCACHE)/github.com/disgoorg/godave@v0.3.0/scripts/libdave_install.sh" v1.1.0
 ENV PKG_CONFIG_PATH=/root/.local/lib/pkgconfig
 COPY . .
 RUN CGO_ENABLED=1 go build -trimpath -ldflags="-s -w" -o /out/ltegtw-server ./cmd/ltegtw-server
