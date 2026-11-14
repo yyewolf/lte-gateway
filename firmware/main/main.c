@@ -17,8 +17,40 @@
 #include "console.h"
 #include "setup.h"
 #include "sms.h"
+#include "sms_store.h"
+#include "calls.h"
+#include "events.h"
+#include "voice.h"
 
 static const char *TAG = "gw";
+
+// SMS engine -> WebSocket events. sms_received carries the whole message; the server still
+// has to DELETE /sms/inbox/<id> once it has stored it.
+static void on_sms_event(const char *ev, uint32_t id)
+{
+    cJSON *o = cJSON_CreateObject();
+    cJSON_AddNumberToObject(o, "id", id);
+    if (strcmp(ev, "sms_received") == 0) {
+        sms_in_t m;
+        if (sms_inbox_get(id, &m) == ESP_OK) {
+            cJSON_AddStringToObject(o, "from", m.from);
+            cJSON_AddStringToObject(o, "timestamp", m.timestamp);
+            cJSON_AddStringToObject(o, "text", m.text);
+            cJSON_AddNumberToObject(o, "parts", m.parts);
+            cJSON_AddBoolToObject(o, "complete", m.complete);
+            sms_in_free(&m);
+        }
+    } else {
+        sms_out_t m;
+        if (sms_outbox_get(id, &m) == ESP_OK) {
+            cJSON_AddStringToObject(o, "to", m.to);
+            cJSON_AddNumberToObject(o, "parts", m.parts);
+            if (m.error[0]) cJSON_AddStringToObject(o, "error", m.error);
+            sms_out_free(&m);
+        }
+    }
+    events_publish(ev, o);
+}
 
 static void set_setup_flag(uint8_t v)
 {
@@ -38,6 +70,13 @@ static bool take_setup_flag(void)
     if (v) { nvs_erase_key(h, "setup"); nvs_commit(h); }
     nvs_close(h);
     return v != 0;
+}
+
+// Audio follows the call: relay while active, stop otherwise.
+static void on_call(const call_info_t *c)
+{
+    if (c->state == CALL_ACTIVE) voice_start();
+    else voice_stop();
 }
 
 void gw_restart(void)
@@ -87,6 +126,10 @@ void app_main(void)
     }
     modem_start();
     sms_start();
+    sms_set_event_cb(on_sms_event);
+    voice_init();
+    calls_set_cb(on_call);
+    calls_start();
     net_start();
     api_start();
 }

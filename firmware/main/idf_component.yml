@@ -1,5 +1,6 @@
 dependencies:
   idf: ">=5.3"
+  espressif/esp_codec_dev: "^1.3.0"
   # cJSON left ESP-IDF in 6.0 and is now a managed component
   espressif/cjson:
     version: "^1.7.19"

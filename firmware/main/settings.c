@@ -12,6 +12,8 @@ const setting_def_t g_settings[] = {
     { "hostname",      "Name on the tailnet (default lte-gateway)", false },
     { "priority_peer", "Tailnet IP of your server (100.x.y.z): always keeps a tunnel slot", false },
     { "api_token",     "Optional: require 'Authorization: Bearer <token>' on the API", true },
+    { "audio_in_db",   "Codec input gain in dB, caller's voice (default 18)", false },
+    { "audio_out_vol", "Codec output volume 0-100, what the caller hears (default 70)", false },
 };
 const size_t g_settings_count = sizeof(g_settings) / sizeof(g_settings[0]);
 
