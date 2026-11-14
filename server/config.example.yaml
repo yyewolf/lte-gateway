@@ -1,0 +1,32 @@
+# Copy to config.yaml. Every key can also be set with an environment
+# variable, e.g. LTEGTW_DISCORD_TOKEN, LTEGTW_GATEWAY_URL (they win over the file).
+
+gateway:
+  # The gateway's tailnet address (MagicDNS name or 100.x IP).
+  url: http://lte-gateway
+  # Only if api_token is set on the gateway ("set api_token ..." on its console).
+  token: ""
+
+rtp:
+  # UDP port for call audio. The gateway sends to the address this server
+  # connects from, so it must be reachable over the tailnet.
+  listen: ":4000"
+
+discord:
+  token: "your-bot-token"
+  guild_id: "123456789012345678"
+  # Text channel for SMS, call cards and recordings.
+  channel_id: "123456789012345678"
+  # Voice channel the bot joins during calls. Empty: calls without audio.
+  voice_channel_id: "123456789012345678"
+  # Who may send SMS, place and answer calls, and be heard on calls.
+  # Empty: everyone in the guild.
+  allowed_user_ids: []
+  # Mentioned when a call comes in or is missed.
+  notify_user_ids: []
+
+# WAV recordings of calls (stereo: left = phone, right = Discord).
+# Empty disables recording.
+recordings_dir: ""
+
+log_level: info   # debug, info, warn, error
