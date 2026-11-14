@@ -28,6 +28,11 @@ CONFIG_LWIP_SO_RCVBUF=y
 CONFIG_LWIP_TCPIP_RECVMBOX_SIZE=64
 CONFIG_LWIP_TCP_SND_BUF_DEFAULT=32768
 CONFIG_LWIP_TCP_WND_DEFAULT=32768
+# Makes esp-netif keep its pointer in netif client data instead of netif->state.
+# microlink's WireGuard netif is a raw lwIP netif whose ->state is the WireGuard
+# device; without this, IDF 6.x's netif status callback reads it as an esp_netif
+# and crashes (LoadProhibited in esp_netif_is_netif_up) when the tunnel comes up.
+CONFIG_LWIP_PPP_SUPPORT=y
 CONFIG_MBEDTLS_CHACHA20_C=y
 CONFIG_MBEDTLS_POLY1305_C=y
 CONFIG_MBEDTLS_CHACHAPOLY_C=y

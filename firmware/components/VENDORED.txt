@@ -3,3 +3,9 @@ Local patch: ESP-IDF 6 support (cJSON managed component), see CMakeLists.txt + i
 Local patch: ESP-IDF 6 / mbedTLS 4 support (private chachapoly headers, PSA RNG for the DERP TLS
 link instead of entropy+ctr_drbg, esp_driver_uart/gpio instead of driver, GCC 15 warning flag).
 All guarded by ESP_IDF_VERSION_MAJOR, so ESP-IDF 5.x builds are unchanged.
+
+Note: microlink's WireGuard netif is added to lwIP directly, with netif->state
+pointing at the WireGuard device. esp-netif must not read netif->state as its
+own pointer, so sdkconfig.defaults sets CONFIG_LWIP_PPP_SUPPORT=y, which
+switches esp-netif to netif client data (LWIP_ESP_NETIF_DATA=1). Without it,
+IDF 6.x crashes in esp_netif_is_netif_up when the tunnel comes up.
