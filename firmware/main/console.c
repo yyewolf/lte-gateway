@@ -6,6 +6,8 @@
 #include "board.h"
 #include "sms.h"
 #include "sms_store.h"
+#include "calls.h"
+#include "voice.h"
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
@@ -36,6 +38,9 @@ static int cmd_status(int argc, char **argv)
     printf("Modem:   %s%s, VBAT %.2f V, SIM %s, reg %d, %s, CSQ %d (%d dBm)\n", m.powered ? "powered" : "off",
            m.ready ? " + ready" : "", m.vbat, m.sim, m.reg, m.operator_name, m.csq, m.rssi_dbm);
     printf("         IMEI %s, ICCID %s, %s\n", m.imei, m.iccid, m.revision);
+    call_info_t c;
+    calls_get(&c);
+    printf("Call:    %s %s\n", calls_state_name(c.state), c.number);
     return 0;
 }
 
@@ -111,6 +116,38 @@ static int cmd_inbox_del(int argc, char **argv)
     return e == ESP_OK ? 0 : 1;
 }
 
+static int cmd_dial(int argc, char **argv)
+{
+    if (argc < 2) { printf("usage: dial <number>\n"); return 1; }
+    const char *why = NULL;
+    if (calls_dial(argv[1], &why) != ESP_OK) { printf("Refused: %s\n", why); return 1; }
+    return 0;
+}
+
+static int cmd_answer(int argc, char **argv)
+{
+    const char *why = NULL;
+    if (calls_answer(&why) != ESP_OK) { printf("Refused: %s\n", why); return 1; }
+    return 0;
+}
+
+static int cmd_hangup(int argc, char **argv)
+{
+    const char *why = NULL;
+    if (calls_hangup(&why) != ESP_OK) { printf("Refused: %s\n", why); return 1; }
+    return 0;
+}
+
+static int cmd_gain(int argc, char **argv)
+{
+    if (argc < 3) { printf("usage: gain <input dB, 0..42> <output volume, 0..100>  (saved)\n"); return 1; }
+    voice_set_gains(atof(argv[1]), atoi(argv[2]));
+    settings_set("audio_in_db", argv[1]);
+    settings_set("audio_out_vol", argv[2]);
+    printf("Codec input %s dB, output %s, saved\n", argv[1], argv[2]);
+    return 0;
+}
+
 static int cmd_peers(int argc, char **argv) { net_print_peers(); return 0; }
 static int cmd_reboot(int argc, char **argv) { gw_restart(); return 0; }
 static int cmd_setup(int argc, char **argv) { gw_restart_into_setup(); return 0; }
@@ -138,6 +175,10 @@ void console_start(void)
     reg("peers", "List tailnet peers", cmd_peers);
     reg("sms", "sms <number> <text>: queue an SMS", cmd_sms);
     reg("inbox", "List received SMS kept in flash", cmd_inbox);
+    reg("dial", "dial <number>: start a call", cmd_dial);
+    reg("answer", "Answer the incoming call", cmd_answer);
+    reg("hangup", "Hang up / reject", cmd_hangup);
+    reg("gain", "gain <input dB> <output volume>: codec levels for calls (saved)", cmd_gain);
     reg("inbox_del", "inbox_del <id>: delete a received SMS", cmd_inbox_del);
     reg("reboot", "Shut the modem down cleanly and restart", cmd_reboot);
     reg("setup", "Restart into setup mode (setup WiFi + page)", cmd_setup);

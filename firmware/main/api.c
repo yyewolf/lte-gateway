@@ -13,6 +13,9 @@
 #include "cJSON.h"
 #include "sms.h"
 #include "sms_store.h"
+#include "calls.h"
+#include "events.h"
+#include "voice.h"
 #include <stdlib.h>
 
 static const char *TAG = "api";
@@ -47,6 +50,14 @@ static bool from_tailnet(httpd_req_t *req)
     return vpn != 0 && l == vpn && (p & 0xFFC00000u) == 0x64400000u;
 }
 
+uint32_t api_peer_ip(httpd_req_t *req)
+{
+    struct sockaddr_storage peer = { 0 };
+    socklen_t pl = sizeof(peer);
+    if (getpeername(httpd_req_to_sockfd(req), (struct sockaddr *)&peer, &pl) != 0) return 0;
+    return v4_of(&peer);
+}
+
 static bool token_ok(httpd_req_t *req)
 {
     char token[80];
@@ -56,7 +67,7 @@ static bool token_ok(httpd_req_t *req)
     return strncmp(hdr, "Bearer ", 7) == 0 && strcmp(hdr + 7, token) == 0;
 }
 
-static esp_err_t guard(httpd_req_t *req)
+esp_err_t api_guard(httpd_req_t *req)
 {
     if (!from_tailnet(req)) {
         ESP_LOGW(TAG, "Refused %s from outside the tailnet", req->uri);
@@ -95,7 +106,7 @@ static const char *reg_name(int reg)
 
 static esp_err_t h_status(httpd_req_t *req)
 {
-    if (guard(req) != ESP_OK) return ESP_OK;
+    if (api_guard(req) != ESP_OK) return ESP_OK;
     net_status_t n;
     modem_status_t m;
     net_get_status(&n);
@@ -132,6 +143,9 @@ static esp_err_t h_status(httpd_req_t *req)
     cJSON_AddStringToObject(mo, "iccid", m.iccid);
     cJSON_AddStringToObject(mo, "revision", m.revision);
     cJSON_AddNumberToObject(root, "sms_inbox", sms_inbox_count());
+    cJSON_AddItemToObject(root, "call", calls_state_json());
+    cJSON_AddNumberToObject(root, "event_clients", events_clients());
+    cJSON_AddItemToObject(root, "voice", voice_stats_json());
     return send_json(req, root);
 }
 
@@ -194,7 +208,7 @@ static cJSON *in_json(const sms_in_t *m)
 // POST /sms {"to": "+336...", "text": "..."}
 static esp_err_t h_sms_send(httpd_req_t *req)
 {
-    if (guard(req) != ESP_OK) return ESP_OK;
+    if (api_guard(req) != ESP_OK) return ESP_OK;
     char *body = read_body(req, 8192);
     if (!body) return ESP_OK;
     cJSON *j = cJSON_Parse(body);
@@ -223,7 +237,7 @@ static esp_err_t h_sms_send(httpd_req_t *req)
 // GET /sms/outbox/<id>
 static esp_err_t h_outbox_get(httpd_req_t *req)
 {
-    if (guard(req) != ESP_OK) return ESP_OK;
+    if (api_guard(req) != ESP_OK) return ESP_OK;
     sms_out_t m;
     if (sms_outbox_get(uri_id(req), &m) != ESP_OK) return send_err(req, "404 Not Found", "no such message");
     cJSON *o = cJSON_CreateObject();
@@ -241,7 +255,7 @@ static esp_err_t h_outbox_get(httpd_req_t *req)
 // GET /sms/inbox?after=<id>&limit=<n>   (oldest first)
 static esp_err_t h_inbox_list(httpd_req_t *req)
 {
-    if (guard(req) != ESP_OK) return ESP_OK;
+    if (api_guard(req) != ESP_OK) return ESP_OK;
     uint32_t after = 0;
     int limit = 20;
     char q[64], v[16];
@@ -268,7 +282,7 @@ static esp_err_t h_inbox_list(httpd_req_t *req)
 // GET /sms/inbox/<id>
 static esp_err_t h_inbox_get(httpd_req_t *req)
 {
-    if (guard(req) != ESP_OK) return ESP_OK;
+    if (api_guard(req) != ESP_OK) return ESP_OK;
     if (strncmp(req->uri, "/sms/inbox?", 11) == 0) return h_inbox_list(req);
     sms_in_t m;
     if (sms_inbox_get(uri_id(req), &m) != ESP_OK) return send_err(req, "404 Not Found", "no such message");
@@ -280,15 +294,61 @@ static esp_err_t h_inbox_get(httpd_req_t *req)
 // DELETE /sms/inbox/<id>: the server has stored the message, drop it from flash
 static esp_err_t h_inbox_delete(httpd_req_t *req)
 {
-    if (guard(req) != ESP_OK) return ESP_OK;
+    if (api_guard(req) != ESP_OK) return ESP_OK;
     if (sms_inbox_delete(uri_id(req)) != ESP_OK) return send_err(req, "404 Not Found", "no such message");
     httpd_resp_set_status(req, "204 No Content");
     return httpd_resp_send(req, NULL, 0);
 }
 
+// ---------- calls ----------
+static esp_err_t h_call_get(httpd_req_t *req)
+{
+    if (api_guard(req) != ESP_OK) return ESP_OK;
+    return send_json(req, calls_state_json());
+}
+
+static esp_err_t call_result(httpd_req_t *req, esp_err_t e, const char *why)
+{
+    if (e == ESP_OK) return send_json(req, calls_state_json());
+    return send_err(req, e == ESP_ERR_INVALID_ARG ? "400 Bad Request" : e == ESP_ERR_INVALID_STATE ? "409 Conflict"
+                                                                                                 : "502 Bad Gateway", why);
+}
+
+// POST /call/dial {"number": "+33..."}
+static esp_err_t h_call_dial(httpd_req_t *req)
+{
+    if (api_guard(req) != ESP_OK) return ESP_OK;
+    char *body = read_body(req, 512);
+    if (!body) return ESP_OK;
+    cJSON *j = cJSON_Parse(body);
+    free(body);
+    const cJSON *n = cJSON_GetObjectItem(j, "number");
+    const char *why = NULL;
+    esp_err_t e = cJSON_IsString(n) ? calls_dial(n->valuestring, &why) : ESP_ERR_INVALID_ARG;
+    if (!cJSON_IsString(n)) why = "expected JSON {\"number\": \"+33...\"}";
+    cJSON_Delete(j);
+    return call_result(req, e, why);
+}
+
+static esp_err_t h_call_answer(httpd_req_t *req)
+{
+    if (api_guard(req) != ESP_OK) return ESP_OK;
+    const char *why = NULL;
+    esp_err_t e = calls_answer(&why);
+    return call_result(req, e, why);
+}
+
+static esp_err_t h_call_hangup(httpd_req_t *req)
+{
+    if (api_guard(req) != ESP_OK) return ESP_OK;
+    const char *why = NULL;
+    esp_err_t e = calls_hangup(&why);
+    return call_result(req, e, why);
+}
+
 static esp_err_t h_root(httpd_req_t *req)
 {
-    if (guard(req) != ESP_OK) return ESP_OK;
+    if (api_guard(req) != ESP_OK) return ESP_OK;
     httpd_resp_set_type(req, "text/plain");
     return httpd_resp_sendstr(req, "LTE gateway " GW_VERSION ". Endpoints:\n"
                                    "  GET /status\n"
@@ -296,7 +356,12 @@ static esp_err_t h_root(httpd_req_t *req)
                                    "  GET /sms/outbox/<id>\n"
                                    "  GET /sms/inbox[?after=<id>&limit=<n>]\n"
                                    "  GET /sms/inbox/<id>\n"
-                                   "  DELETE /sms/inbox/<id>\n");
+                                   "  DELETE /sms/inbox/<id>\n"
+                                   "  GET /call\n"
+                                   "  POST /call/dial {\"number\":\"+33...\"}\n"
+                                   "  POST /call/answer\n"
+                                   "  POST /call/hangup\n"
+                                   "  WebSocket /events\n");
 }
 
 void api_start(void)
@@ -306,7 +371,7 @@ void api_start(void)
     cfg.stack_size = 6144;
     cfg.core_id = 1;              // core 0 is kept for the audio path later
     cfg.lru_purge_enable = true;
-    cfg.max_uri_handlers = 16;
+    cfg.max_uri_handlers = 24;
     cfg.uri_match_fn = httpd_uri_match_wildcard;
     if (httpd_start(&s_httpd, &cfg) != ESP_OK) {
         ESP_LOGE(TAG, "HTTP server failed to start");
@@ -320,7 +385,12 @@ void api_start(void)
         { .uri = "/sms/inbox", .method = HTTP_GET, .handler = h_inbox_list },
         { .uri = "/sms/inbox/*", .method = HTTP_GET, .handler = h_inbox_get },
         { .uri = "/sms/inbox/*", .method = HTTP_DELETE, .handler = h_inbox_delete },
+        { .uri = "/call", .method = HTTP_GET, .handler = h_call_get },
+        { .uri = "/call/dial", .method = HTTP_POST, .handler = h_call_dial },
+        { .uri = "/call/answer", .method = HTTP_POST, .handler = h_call_answer },
+        { .uri = "/call/hangup", .method = HTTP_POST, .handler = h_call_hangup },
     };
     for (size_t i = 0; i < sizeof(uris) / sizeof(uris[0]); i++) httpd_register_uri_handler(s_httpd, &uris[i]);
+    events_register(s_httpd);
     ESP_LOGI(TAG, "API on port 80 (tailnet only)");
 }
