@@ -1,8 +1,9 @@
 # LTE gateway firmware (rev0.6 board)
 
-Done so far: WiFi + Tailscale (microlink), modem power-up and status, an HTTP API that only
-answers on the tailnet, a setup WiFi for first configuration, a USB console (step 1), and SMS
-in PDU mode with a flash-backed inbox and outbox (step 2). Calls, pushed events and voice come next.
+WiFi + Tailscale (microlink), modem power-up and status, an HTTP API that only answers on the
+tailnet, a setup WiFi for first configuration, a USB console, SMS in PDU mode with a
+flash-backed inbox and outbox, call control, events pushed over a WebSocket, and call audio
+relayed as G.711 RTP over the tailnet.
 
 Builds on ESP-IDF 6.1 and 5.4 (both checked). On 6.x, cJSON is fetched from the component registry on the first build. microlink is vendored in `components/`
 (commit 216da33, MIT, with small ESP-IDF 6 patches listed in `components/VENDORED.txt`).
@@ -74,6 +75,43 @@ delivered after 1 hour with `"complete": false`), and kept in flash until you de
 Your server should store each message, then DELETE it. Step 3 adds a push notification so it
 doesn't have to poll.
 
+## Calls
+
+    curl http://lte-gateway/call                                   # {"state": "idle"}
+    curl -X POST http://lte-gateway/call/dial -d '{"number": "+33612345678"}'
+    curl -X POST http://lte-gateway/call/answer
+    curl -X POST http://lte-gateway/call/hangup                    # also rejects a ringing call
+
+States: `idle`, `ringing` (incoming), `dialing`, `alerting` (outgoing, the other side rings), `active`.
+
+## Events (WebSocket)
+
+Connect to `ws://lte-gateway/events` from a tailnet machine (same checks and token as the API).
+Every message is one JSON object with a `type` and `uptime_ms`:
+
+| type | fields |
+|---|---|
+| `hello` | `firmware`, `sms_inbox` (count waiting), `call` (current state) — sent on connect |
+| `sms_received` | `id`, `from`, `timestamp`, `text`, `parts`, `complete` — still DELETE it once stored |
+| `sms_sent` / `sms_failed` | `id`, `to`, `parts`, `error` |
+| `ring` | `number` (caller ID, "" if withheld) — about every 5 s while ringing |
+| `call_state` | `state`, `direction`, `number`; when it ends: `previous`, `reason` (`ended`, `hangup`, `rejected`, `missed`, `busy`, `no_answer`, `failed`, `modem_down`), `duration_s` |
+| `missed_call` | `number` |
+| `modem` | `registration`, `operator`, `sim`, `rssi_dbm` — on changes |
+
+The board sends a WebSocket ping every 20 s. Up to 4 clients at once.
+
+## Call audio (RTP)
+
+While a call is `active`, the board sends the caller's voice as RTP (G.711 µ-law, payload type 0,
+8 kHz, 160 samples = 20 ms per packet) over the tailnet, and plays the RTP it receives back to
+the caller (PCMU or PCMA). The board listens on UDP port 4000 and sends to the newest
+`/events` client, port 4000 by default. A client can pick another port by sending
+`{"type": "audio", "port": 5004}` on the WebSocket. Only packets from that client's IP are
+played. The board keeps a 60–160 ms jitter buffer; `/status` shows packet counters under `voice`.
+
+Codec levels: `gain <input dB> <output volume>` on the console (saved; default 18 dB / 70).
+
 ## Console (USB-C J101)
 
     status              WiFi, tailnet and modem state
@@ -84,6 +122,8 @@ doesn't have to poll.
     sms <number> <text> queue an SMS
     inbox               received SMS kept in flash
     inbox_del <id>      delete one
+    dial <number>       start a call; answer, hangup
+    gain <in dB> <vol>  codec levels for calls (saved)
     reboot              clean modem shutdown + restart
     setup               restart into setup mode
 
@@ -93,11 +133,13 @@ The PDU encoder/decoder runs on a PC:
 
     cd test
     gcc -Wall -I../main test_pdu.c ../main/pdu.c -o test_pdu && ./test_pdu
+    gcc -Wall -I../main test_g711.c ../main/g711.c -o test_g711 && ./test_g711
 
 ## Notes
 
 - microlink's own web config page is turned off (`CONFIG_ML_ENABLE_CONFIG_HTTPD=n`): it listens on every
   interface, LAN included, with no login, and shows the auth key.
-- Core 0 is kept free for the audio path (step 4). The modem, API and console run on core 1;
-  microlink puts its network I/O task on core 0 and the rest on core 1.
+- The audio loop runs on core 0 at high priority, paced by the I2S clock. The modem, API,
+  events and console run on core 1; microlink puts its network I/O task on core 0 and the
+  rest on core 1.
 - The modem is restarted automatically if it stops answering AT three times in a row.
