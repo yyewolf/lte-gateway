@@ -9,6 +9,7 @@
 #include "driver/gpio.h"
 #include "driver/uart.h"
 #include "esp_log.h"
+#include "events.h"
 
 static const char *TAG = "modem";
 
@@ -240,6 +241,9 @@ esp_err_t modem_power_off(void)
     gpio_set_level(PIN_MODEM_PWR_EN, 0);
     board_led(PIN_LED_GREEN, false);
     ESP_LOGI(TAG, "Modem off");
+    cJSON *o = cJSON_CreateObject();
+    cJSON_AddStringToObject(o, "registration", "modem_off");
+    events_publish("modem", o);
     return ESP_OK;
 }
 
@@ -276,7 +280,7 @@ static void configure(void)
     STATUS_SET(s_status = st);
 }
 
-static void poll(void)
+static void poll_status(void)
 {
     char r[128];
     modem_status_t st;
@@ -307,7 +311,18 @@ static void poll(void)
         }
     }
     board_led(PIN_LED_GREEN, st.reg == 1 || st.reg == 5);
+    bool changed = st.reg != s_status.reg || strcmp(st.operator_name, s_status.operator_name) != 0 ||
+                   strcmp(st.sim, s_status.sim) != 0;
     STATUS_SET(s_status = st);
+    if (changed) {
+        static const char *regs[] = { "not_searching", "home", "searching", "denied", "unknown", "roaming" };
+        cJSON *o = cJSON_CreateObject();
+        cJSON_AddStringToObject(o, "registration", (unsigned)st.reg < 6 ? regs[st.reg] : "unknown");
+        cJSON_AddStringToObject(o, "operator", st.operator_name);
+        cJSON_AddStringToObject(o, "sim", st.sim);
+        cJSON_AddNumberToObject(o, "rssi_dbm", st.rssi_dbm);
+        events_publish("modem", o);
+    }
 }
 
 static void manager_task(void *arg)
@@ -316,7 +331,7 @@ static void manager_task(void *arg)
         if (modem_power_on() == ESP_OK) {
             configure();
             while (1) {
-                poll();
+                poll_status();
                 modem_status_t st;
                 modem_get_status(&st);
                 if (st.at_errors >= 3) {

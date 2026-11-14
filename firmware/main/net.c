@@ -115,6 +115,8 @@ void net_start(void)
     xTaskCreatePinnedToCore(net_task, "net_start", 6144, NULL, 5, NULL, 1);
 }
 
+microlink_t *net_microlink(void) { return s_ml; }
+
 uint32_t net_tailnet_ip(void)
 {
     return (s_ml && microlink_is_connected(s_ml)) ? microlink_get_vpn_ip(s_ml) : 0;
