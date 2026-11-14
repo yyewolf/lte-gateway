@@ -1,0 +1,7 @@
+dependencies:
+  idf: ">=5.3"
+  # cJSON left ESP-IDF in 6.0 and is now a managed component
+  espressif/cjson:
+    version: "^1.7.19"
+    rules:
+      - if: "idf_version >=6.0"
