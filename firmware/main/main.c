@@ -82,6 +82,7 @@ static void on_call(const call_info_t *c)
 void gw_restart(void)
 {
     ESP_LOGW(TAG, "Restarting");
+    net_stop();
     modem_power_off();
     esp_restart();
 }

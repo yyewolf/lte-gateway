@@ -10,6 +10,7 @@
 #include "esp_event.h"
 #include "esp_netif.h"
 #include "esp_log.h"
+#include "esp_timer.h"
 #include "microlink.h"
 
 static const char *TAG = "net";
@@ -19,6 +20,9 @@ static EventGroupHandle_t s_ev;
 static microlink_t *s_ml;
 static esp_netif_t *s_sta;
 static char s_ssid[33];
+static esp_timer_handle_t s_retry;
+static int s_fails, s_comeback;
+static bool s_pmf_off;
 
 static const char *state_name(microlink_state_t s)
 {
@@ -27,19 +31,73 @@ static const char *state_name(microlink_state_t s)
     return (unsigned)s < sizeof(names) / sizeof(names[0]) ? names[s] : "UNKNOWN";
 }
 
+static const char *reason_name(int r)
+{
+    switch (r) {
+    case WIFI_REASON_AUTH_EXPIRE: return "auth expired";
+    case WIFI_REASON_ASSOC_LEAVE: return "left";
+    case WIFI_REASON_4WAY_HANDSHAKE_TIMEOUT: return "4-way handshake timeout (wrong password?)";
+    case WIFI_REASON_BEACON_TIMEOUT: return "beacon timeout";
+    case WIFI_REASON_NO_AP_FOUND: return "network not found";
+    case WIFI_REASON_AUTH_FAIL: return "auth failed (wrong password?)";
+    case WIFI_REASON_HANDSHAKE_TIMEOUT: return "handshake timeout (wrong password?)";
+    case WIFI_REASON_CONNECTION_FAIL: return "connection failed";
+    case WIFI_REASON_ASSOC_COMEBACK_TIME_TOO_LONG: return "router still holds the previous session (PMF comeback)";
+    default: return "";
+    }
+}
+
+static void retry_cb(void *arg)
+{
+    esp_wifi_connect();
+}
+
+// PMF (802.11w): after a reset without a clean disconnect, the router still
+// has a protected association for us and answers "come back later" (reason
+// 208) until it times out, which can take a while on some routers. Back off,
+// and after several in a row connect without PMF (fine on WPA2 and WPA2/WPA3
+// mixed networks; a WPA3-only network will refuse, and PMF is turned back on).
+static void schedule_retry(int reason)
+{
+    s_fails++;
+    if (reason == WIFI_REASON_ASSOC_COMEBACK_TIME_TOO_LONG) s_comeback++;
+    else s_comeback = 0;
+
+    wifi_config_t wc;
+    if (!s_pmf_off && s_comeback >= 4 && esp_wifi_get_config(WIFI_IF_STA, &wc) == ESP_OK) {
+        ESP_LOGW(TAG, "Router keeps refusing with PMF, trying without it");
+        wc.sta.pmf_cfg.capable = false;
+        esp_wifi_set_config(WIFI_IF_STA, &wc);
+        s_pmf_off = true;
+    } else if (s_pmf_off && reason != WIFI_REASON_ASSOC_COMEBACK_TIME_TOO_LONG && s_fails >= 8 &&
+               esp_wifi_get_config(WIFI_IF_STA, &wc) == ESP_OK) {
+        ESP_LOGW(TAG, "Still failing without PMF, turning it back on");
+        wc.sta.pmf_cfg.capable = true;
+        esp_wifi_set_config(WIFI_IF_STA, &wc);
+        s_pmf_off = false;
+        s_fails = s_comeback = 0;
+    }
+
+    int delay_s = s_fails < 2 ? 1 : s_fails < 4 ? 3 : s_fails < 8 ? 10 : 30;
+    const char *name = reason_name(reason);
+    ESP_LOGW(TAG, "WiFi disconnected (reason %d%s%s), retrying in %d s", reason, name[0] ? ": " : "", name, delay_s);
+    esp_timer_stop(s_retry);
+    esp_timer_start_once(s_retry, (uint64_t)delay_s * 1000000);
+}
+
 static void on_wifi(void *arg, esp_event_base_t base, int32_t id, void *data)
 {
     if (base == WIFI_EVENT && id == WIFI_EVENT_STA_START) {
         esp_wifi_connect();
     } else if (base == WIFI_EVENT && id == WIFI_EVENT_STA_DISCONNECTED) {
         wifi_event_sta_disconnected_t *d = data;
-        ESP_LOGW(TAG, "WiFi disconnected (reason %d), retrying", d->reason);
         xEventGroupClearBits(s_ev, WIFI_UP);
-        vTaskDelay(pdMS_TO_TICKS(1000));
-        esp_wifi_connect();
+        schedule_retry(d->reason);
     } else if (base == IP_EVENT && id == IP_EVENT_STA_GOT_IP) {
         ip_event_got_ip_t *e = data;
-        ESP_LOGI(TAG, "WiFi up on %s, LAN IP " IPSTR, s_ssid, IP2STR(&e->ip_info.ip));
+        ESP_LOGI(TAG, "WiFi up on %s, LAN IP " IPSTR "%s", s_ssid, IP2STR(&e->ip_info.ip),
+                 s_pmf_off ? " (without PMF)" : "");
+        s_fails = s_comeback = 0;
         xEventGroupSetBits(s_ev, WIFI_UP);
     }
 }
@@ -90,6 +148,8 @@ void net_start(void)
     settings_get("wifi_ssid", s_ssid, sizeof(s_ssid));
     settings_get("wifi_pass", pass, sizeof(pass));
     s_ev = xEventGroupCreate();
+    const esp_timer_create_args_t ta = { .callback = retry_cb, .name = "wifi_retry" };
+    ESP_ERROR_CHECK(esp_timer_create(&ta, &s_retry));
     board_led(PIN_LED_RED, true);
 
     ESP_ERROR_CHECK(esp_netif_init());
@@ -116,6 +176,14 @@ void net_start(void)
 }
 
 microlink_t *net_microlink(void) { return s_ml; }
+
+void net_stop(void)
+{
+    // A clean disconnect tells the router to drop our session, so the next
+    // boot does not hit the PMF "come back later" refusal.
+    if (s_retry) esp_timer_stop(s_retry);
+    if (s_sta && esp_wifi_disconnect() == ESP_OK) vTaskDelay(pdMS_TO_TICKS(200));
+}
 
 uint32_t net_tailnet_ip(void)
 {

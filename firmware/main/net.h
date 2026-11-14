@@ -15,6 +15,8 @@ typedef struct {
 } net_status_t;
 
 void net_start(void);
+// Disconnects from WiFi cleanly (call before restarting).
+void net_stop(void);
 void net_get_status(net_status_t *out);
 uint32_t net_tailnet_ip(void);     // host byte order, 0 when not connected
 void net_print_peers(void);
