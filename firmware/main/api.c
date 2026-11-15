@@ -16,6 +16,10 @@
 #include "calls.h"
 #include "events.h"
 #include "voice.h"
+#include "peers.h"
+#include "ota.h"
+#include "ui.h"
+#include "microlink.h"
 #include <stdlib.h>
 
 static const char *TAG = "api";
@@ -38,7 +42,7 @@ static uint32_t v4_of(const struct sockaddr_storage *ss)
 // The request must have come in on our tailnet IP, from a tailnet address (100.64.0.0/10).
 // WireGuard only hands us packets from authenticated peers, and replies to 100.x go back
 // through the tunnel, so a LAN host can't complete a TCP handshake with a forged source.
-static bool from_tailnet(httpd_req_t *req)
+bool api_from_tailnet(httpd_req_t *req)
 {
     int fd = httpd_req_to_sockfd(req);
     struct sockaddr_storage local = { 0 }, peer = { 0 };
@@ -69,7 +73,7 @@ static bool token_ok(httpd_req_t *req)
 
 esp_err_t api_guard(httpd_req_t *req)
 {
-    if (!from_tailnet(req)) {
+    if (!api_from_tailnet(req)) {
         ESP_LOGW(TAG, "Refused %s from outside the tailnet", req->uri);
         httpd_resp_send_err(req, HTTPD_403_FORBIDDEN, "tailnet only");
         return ESP_FAIL;
@@ -346,8 +350,56 @@ static esp_err_t h_call_hangup(httpd_req_t *req)
     return call_result(req, e, why);
 }
 
+// ---------- peers ----------
+static esp_err_t h_peers_get(httpd_req_t *req)
+{
+    if (api_guard(req) != ESP_OK) return ESP_OK;
+    return send_json(req, peers_json());
+}
+
+// POST /peers/pin and /peers/unpin {"ip": "100.x.y.z"}
+static esp_err_t pin_common(httpd_req_t *req, bool pin)
+{
+    if (api_guard(req) != ESP_OK) return ESP_OK;
+    char *body = read_body(req, 256);
+    if (!body) return ESP_OK;
+    cJSON *j = cJSON_Parse(body);
+    free(body);
+    const cJSON *ip = cJSON_GetObjectItem(j, "ip");
+    uint32_t v = cJSON_IsString(ip) ? microlink_parse_ip(ip->valuestring) : 0;
+    cJSON_Delete(j);
+    if (!v) return send_err(req, "400 Bad Request", "expected JSON {\"ip\": \"100.x.y.z\"}");
+    const char *why = NULL;
+    esp_err_t e = pin ? peers_pin(v, &why) : peers_unpin(v, &why);
+    if (e != ESP_OK)
+        return send_err(req, e == ESP_ERR_INVALID_ARG ? "400 Bad Request" : e == ESP_ERR_NOT_FOUND ? "404 Not Found"
+                             : e == ESP_ERR_NO_MEM ? "409 Conflict" : "500 Internal Server Error", why);
+    return send_json(req, peers_json());
+}
+
+static esp_err_t h_peers_pin(httpd_req_t *req) { return pin_common(req, true); }
+static esp_err_t h_peers_unpin(httpd_req_t *req) { return pin_common(req, false); }
+
+// GET /ui: admin page. Tailnet only; the page's own requests carry the token.
+static esp_err_t h_ui(httpd_req_t *req)
+{
+    if (!api_from_tailnet(req)) {
+        httpd_resp_send_err(req, HTTPD_403_FORBIDDEN, "tailnet only");
+        return ESP_OK;
+    }
+    return ui_send_page(req);
+}
+
 static esp_err_t h_root(httpd_req_t *req)
 {
+    // A browser gets the admin page
+    char accept[96];
+    if (httpd_req_get_hdr_value_str(req, "Accept", accept, sizeof(accept)) != ESP_ERR_NOT_FOUND &&
+        strstr(accept, "text/html") && api_from_tailnet(req)) {
+        httpd_resp_set_status(req, "302 Found");
+        httpd_resp_set_hdr(req, "Location", "/ui");
+        return httpd_resp_send(req, NULL, 0);
+    }
     if (api_guard(req) != ESP_OK) return ESP_OK;
     httpd_resp_set_type(req, "text/plain");
     return httpd_resp_sendstr(req, "LTE gateway " GW_VERSION ". Endpoints:\n"
@@ -361,7 +413,14 @@ static esp_err_t h_root(httpd_req_t *req)
                                    "  POST /call/dial {\"number\":\"+33...\"}\n"
                                    "  POST /call/answer\n"
                                    "  POST /call/hangup\n"
-                                   "  WebSocket /events\n");
+                                   "  WebSocket /events\n"
+                                   "  GET /peers\n"
+                                   "  POST /peers/pin {\"ip\":\"100.x.y.z\"}\n"
+                                   "  POST /peers/unpin {\"ip\":\"100.x.y.z\"}\n"
+                                   "  GET /ota\n"
+                                   "  POST /ota  (body: build/lte_gateway.bin)\n"
+                                   "  POST /ota/rollback\n"
+                                   "  GET /ui  (admin page, in a browser)\n");
 }
 
 void api_start(void)
@@ -371,7 +430,7 @@ void api_start(void)
     cfg.stack_size = 6144;
     cfg.core_id = 1;              // core 0 is kept for the audio path later
     cfg.lru_purge_enable = true;
-    cfg.max_uri_handlers = 24;
+    cfg.max_uri_handlers = 32;
     cfg.uri_match_fn = httpd_uri_match_wildcard;
     if (httpd_start(&s_httpd, &cfg) != ESP_OK) {
         ESP_LOGE(TAG, "HTTP server failed to start");
@@ -389,8 +448,13 @@ void api_start(void)
         { .uri = "/call/dial", .method = HTTP_POST, .handler = h_call_dial },
         { .uri = "/call/answer", .method = HTTP_POST, .handler = h_call_answer },
         { .uri = "/call/hangup", .method = HTTP_POST, .handler = h_call_hangup },
+        { .uri = "/peers", .method = HTTP_GET, .handler = h_peers_get },
+        { .uri = "/peers/pin", .method = HTTP_POST, .handler = h_peers_pin },
+        { .uri = "/peers/unpin", .method = HTTP_POST, .handler = h_peers_unpin },
+        { .uri = "/ui", .method = HTTP_GET, .handler = h_ui },
     };
     for (size_t i = 0; i < sizeof(uris) / sizeof(uris[0]); i++) httpd_register_uri_handler(s_httpd, &uris[i]);
     events_register(s_httpd);
+    ota_register(s_httpd);
     ESP_LOGI(TAG, "API on port 80 (tailnet only)");
 }
