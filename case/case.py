@@ -185,8 +185,9 @@ def lid():
         l -= prism(bx, (y0 + y1) / 2, tw, y1 - y0, zl - 1, zl + 0.8, 0.8)  # thin to 1.2 mm
         l += Pos(bx, by, Z_TOP_PCB + 1.5 + 0.3) * Cylinder(
             1.5, zl + 0.81 - (Z_TOP_PCB + 1.8), align=(Align.CENTER, Align.CENTER, Align.MIN))
-        l += Pos(bx, by, zl + LID_T - 0.01) * Cylinder(2.0, 0.6,
-                                                        align=(Align.CENTER, Align.CENTER, Align.MIN))
+        # shallow dimple so the top stays flat for printing face down
+        l -= Pos(bx, by, zl + LID_T - 0.4) * Cylinder(2.0, 1.0,
+                                                       align=(Align.CENTER, Align.CENTER, Align.MIN))
         l -= Pos(bx, y0 - 3.0, zl + LID_T - 0.4) * extrude(Text(label, 3.0), 1.0)
 
     # vents over the modem, and the name
