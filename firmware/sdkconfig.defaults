@@ -57,4 +57,8 @@ CONFIG_ML_DERP_REGION=4
 
 CONFIG_HTTPD_MAX_REQ_HDR_LEN=1024
 CONFIG_HTTPD_WS_SUPPORT=y
+# IDF 6.x no longer calls the URI handler for the WebSocket handshake; these
+# callbacks check the caller and register event clients (ignored on IDF 5.x).
+CONFIG_HTTPD_WS_PRE_HANDSHAKE_CB_SUPPORT=y
+CONFIG_HTTPD_WS_POST_HANDSHAKE_CB_SUPPORT=y
 CONFIG_LOG_DEFAULT_LEVEL_INFO=y

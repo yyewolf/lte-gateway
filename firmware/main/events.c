@@ -13,6 +13,7 @@
 #include "freertos/semphr.h"
 #include "esp_log.h"
 #include "esp_timer.h"
+#include "sdkconfig.h"
 
 static const char *TAG = "events";
 
@@ -96,27 +97,43 @@ static void send_hello(int fd)
     if (s) queue_send(s, fd, HTTPD_WS_TYPE_TEXT);
 }
 
+// IDF 6.x answers the WebSocket handshake itself and no longer calls the URI
+// handler for it: the caller is checked in a pre-handshake callback and the
+// client registered in a post-handshake callback. IDF 5.x calls the handler
+// with the GET request instead.
+static esp_err_t ws_check(httpd_req_t *req)
+{
+    return api_guard(req);
+}
+
+static esp_err_t ws_open(httpd_req_t *req)
+{
+    int fd = httpd_req_to_sockfd(req);
+    int slot = -1;
+    xSemaphoreTake(s_lock, portMAX_DELAY);
+    for (int i = 0; i < MAX_CLIENTS; i++)
+        if (s_fds[i] < 0 || httpd_ws_get_fd_info(s_hd, s_fds[i]) != HTTPD_WS_CLIENT_WEBSOCKET) { slot = i; break; }
+    if (slot >= 0) s_fds[slot] = fd;
+    xSemaphoreGive(s_lock);
+    if (slot < 0) {
+        ESP_LOGW(TAG, "Too many event clients, refusing fd %d", fd);
+        return ESP_FAIL;
+    }
+    ESP_LOGI(TAG, "Event client connected (fd %d)", fd);
+    uint32_t ip = api_peer_ip(req);
+    if (ip) voice_set_target(ip, 0);        // call audio goes to the newest client, port 4000 by default
+    send_hello(fd);                          // queued: goes out after the handshake reply
+    return ESP_OK;
+}
+
 static esp_err_t h_events(httpd_req_t *req)
 {
-    if (req->method == HTTP_GET) {               // the handshake: check the caller first
-        if (api_guard(req) != ESP_OK) return ESP_FAIL;
-        int fd = httpd_req_to_sockfd(req);
-        int slot = -1;
-        xSemaphoreTake(s_lock, portMAX_DELAY);
-        for (int i = 0; i < MAX_CLIENTS; i++)
-            if (s_fds[i] < 0 || httpd_ws_get_fd_info(s_hd, s_fds[i]) != HTTPD_WS_CLIENT_WEBSOCKET) { slot = i; break; }
-        if (slot >= 0) s_fds[slot] = fd;
-        xSemaphoreGive(s_lock);
-        if (slot < 0) {
-            ESP_LOGW(TAG, "Too many event clients, refusing fd %d", fd);
-            return ESP_FAIL;
-        }
-        ESP_LOGI(TAG, "Event client connected (fd %d)", fd);
-        uint32_t ip = api_peer_ip(req);
-        if (ip) voice_set_target(ip, 0);        // call audio goes to the newest client, port 4000 by default
-        send_hello(fd);                          // queued: goes out after the handshake reply
-        return ESP_OK;
+#if !(CONFIG_HTTPD_WS_PRE_HANDSHAKE_CB_SUPPORT && CONFIG_HTTPD_WS_POST_HANDSHAKE_CB_SUPPORT)
+    if (req->method == HTTP_GET) {               // IDF 5.x: the handshake
+        if (ws_check(req) != ESP_OK) return ESP_FAIL;
+        return ws_open(req);
     }
+#endif
     // Data frames from the client: we only expect pings/pongs (handled by the server) or text we ignore.
     httpd_ws_frame_t f = { 0 };
     esp_err_t r = httpd_ws_recv_frame(req, &f, 0);
@@ -153,7 +170,12 @@ void events_register(httpd_handle_t hd)
     s_hd = hd;
     s_lock = xSemaphoreCreateMutex();
     const httpd_uri_t u = { .uri = "/events", .method = HTTP_GET, .handler = h_events, .is_websocket = true,
-                            .handle_ws_control_frames = false };
+                            .handle_ws_control_frames = false,
+#if CONFIG_HTTPD_WS_PRE_HANDSHAKE_CB_SUPPORT && CONFIG_HTTPD_WS_POST_HANDSHAKE_CB_SUPPORT
+                            .ws_pre_handshake_cb = ws_check,
+                            .ws_post_handshake_cb = ws_open,
+#endif
+    };
     httpd_register_uri_handler(hd, &u);
     xTaskCreatePinnedToCore(ping_task, "ws_ping", 3072, NULL, 3, NULL, 1);
 }
