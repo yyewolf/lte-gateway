@@ -17,6 +17,7 @@
 #include "lwip/pbuf.h"
 #include "lwip/netif.h"
 #include "lwip/ip_addr.h"
+#include "lwip/tcpip.h"
 #include <string.h>
 
 static const char *TAG = "ml_udp";
@@ -168,8 +169,10 @@ microlink_udp_socket_t *microlink_udp_create(microlink_t *ml, uint16_t local_por
         return NULL;
     }
 
+    LOCK_TCPIP_CORE();
     sock->pcb = udp_new();
     if (!sock->pcb) {
+        UNLOCK_TCPIP_CORE();
         vSemaphoreDelete(sock->rx_sem);
         free(sock);
         return NULL;
@@ -186,8 +189,9 @@ microlink_udp_socket_t *microlink_udp_create(microlink_t *ml, uint16_t local_por
 
     err_t err = udp_bind(sock->pcb, &local_ip, local_port);
     if (err != ERR_OK) {
-        ESP_LOGE(TAG, "udp_bind failed: %d", err);
         udp_remove(sock->pcb);
+        UNLOCK_TCPIP_CORE();
+        ESP_LOGE(TAG, "udp_bind failed: %d", err);
         vSemaphoreDelete(sock->rx_sem);
         free(sock);
         return NULL;
@@ -195,6 +199,7 @@ microlink_udp_socket_t *microlink_udp_create(microlink_t *ml, uint16_t local_por
 
     sock->local_port = sock->pcb->local_port;
     udp_recv(sock->pcb, udp_recv_cb, sock);
+    UNLOCK_TCPIP_CORE();
 
     /* Start RX task on Core 1 */
     sock->rx_running = true;
@@ -226,7 +231,9 @@ void microlink_udp_close(microlink_udp_socket_t *sock) {
      * The callback runs from tcpip thread and accesses sock->rx_sem,
      * so it must be unregistered before we touch any sock fields. */
     if (sock->pcb) {
+        LOCK_TCPIP_CORE();
         udp_recv(sock->pcb, NULL, NULL);
+        UNLOCK_TCPIP_CORE();
     }
 
     if (sock->rx_running) {
@@ -236,7 +243,9 @@ void microlink_udp_close(microlink_udp_socket_t *sock) {
     }
 
     if (sock->pcb) {
+        LOCK_TCPIP_CORE();
         udp_remove(sock->pcb);
+        UNLOCK_TCPIP_CORE();
     }
 
     if (sock->rx_sem) vSemaphoreDelete(sock->rx_sem);
@@ -256,8 +265,10 @@ esp_err_t microlink_udp_send(microlink_udp_socket_t *sock, uint32_t dest_ip,
     if (!p) return ESP_ERR_NO_MEM;
 
     memcpy(p->payload, data, len);
+    LOCK_TCPIP_CORE();
     err_t err = udp_sendto(sock->pcb, p, &dest, dest_port);
     pbuf_free(p);
+    UNLOCK_TCPIP_CORE();
 
     if (err != ERR_OK) {
         if (sock->ml) {

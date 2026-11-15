@@ -33,6 +33,9 @@ CONFIG_LWIP_TCP_WND_DEFAULT=32768
 # device; without this, IDF 6.x's netif status callback reads it as an esp_netif
 # and crashes (LoadProhibited in esp_netif_is_netif_up) when the tunnel comes up.
 CONFIG_LWIP_PPP_SUPPORT=y
+# Lets microlink's UDP API (call audio) take the lwIP core lock from app tasks
+# instead of racing the TCPIP thread.
+CONFIG_LWIP_TCPIP_CORE_LOCKING=y
 CONFIG_MBEDTLS_CHACHA20_C=y
 CONFIG_MBEDTLS_POLY1305_C=y
 CONFIG_MBEDTLS_CHACHAPOLY_C=y

@@ -539,7 +539,13 @@ static void wireguardif_process_data_message(struct wireguard_device *device, st
 								if (dest_ok) {
 									// Send packet to be processed by LWIP
 									WG_DEBUG("[WG_RX_IP] Passing %u bytes to IP layer\n", (unsigned)pbuf->tot_len);
-									ip_input(pbuf, device->netif);
+									// netif->input is tcpip_input (set by microlink): the packet
+									// is handed to the TCPIP thread. Calling ip_input here ran
+									// the IP/UDP/TCP stack from the WireGuard task, racing the
+									// TCPIP thread (crash in udp_input on incoming RTP).
+									if (device->netif->input(pbuf, device->netif) != ERR_OK) {
+										pbuf_free(pbuf);
+									}
 									// pbuf is owned by IP layer now
 									pbuf = NULL;
 								} else {
@@ -755,8 +761,8 @@ void wireguardif_network_rx(void *arg, struct udp_pcb *pcb, struct pbuf *p, cons
 
 	uint8_t type = wireguard_get_message_type(data, len);
 
-	// Always log incoming WG packets (critical for debugging handshake issues)
-	printf("[WG_RX] type=%d (%s) len=%u from %s:%u\n",
+	// Log incoming handshake packets; data packets (50/s each way during a call) only with WG_DEBUG_LOGGING
+	if (type != MESSAGE_TRANSPORT_DATA || WG_DEBUG_LOGGING) printf("[WG_RX] type=%d (%s) len=%u from %s:%u\n",
 		type,
 		type == 1 ? "INIT" : type == 2 ? "RESP" : type == 3 ? "COOKIE" : type == 4 ? "DATA" : "?",
 		(unsigned)len,
