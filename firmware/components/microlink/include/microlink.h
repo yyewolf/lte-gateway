@@ -302,6 +302,12 @@ esp_err_t microlink_udp_set_rx_callback(microlink_udp_socket_t *sock,
  */
 uint16_t microlink_udp_get_local_port(const microlink_udp_socket_t *sock);
 
+/**
+ * @brief Datagrams delivered to the socket by lwIP, and ones dropped because
+ *        the RX ring was full (since the socket was created)
+ */
+void microlink_udp_get_rx_stats(const microlink_udp_socket_t *sock, uint32_t *received, uint32_t *dropped);
+
 /* ============================================================================
  * TCP Socket API
  *

@@ -57,6 +57,10 @@ struct microlink_udp_socket {
     /* Dedicated RX task */
     TaskHandle_t rx_task;
     volatile bool rx_running;
+
+    /* Counters: datagrams lwIP delivered to this socket, and ones dropped
+     * because the RX ring was full */
+    volatile uint32_t rx_count, rx_drops;
 };
 
 /* ============================================================================
@@ -93,9 +97,11 @@ static void udp_recv_cb(void *arg, struct udp_pcb *pcb, struct pbuf *p,
         return;
     }
 
+    sock->rx_count++;
     uint8_t next = (sock->rx_head + 1) % UDP_RX_QUEUE_SIZE;
     if (next == sock->rx_tail) {
         /* Queue full */
+        sock->rx_drops++;
         pbuf_free(p);
         return;
     }
@@ -178,10 +184,9 @@ microlink_udp_socket_t *microlink_udp_create(microlink_t *ml, uint16_t local_por
         return NULL;
     }
 
-    /* Bind to WG netif */
-    if (ml->wg_netif) {
-        udp_bind_netif(sock->pcb, (struct netif *)ml->wg_netif);
-    }
+    /* Not bound to the WG netif: binding to the VPN IP is enough, and the WG
+     * netif is added to lwIP by hand (netif->num 0, the same index as the
+     * first regular netif), so index-based netif matching is unreliable. */
 
     /* Bind to VPN IP + port */
     ip_addr_t local_ip;
@@ -325,6 +330,11 @@ esp_err_t microlink_udp_set_rx_callback(microlink_udp_socket_t *sock,
     sock->rx_cb = cb;
     sock->rx_cb_data = user_data;
     return ESP_OK;
+}
+
+void microlink_udp_get_rx_stats(const microlink_udp_socket_t *sock, uint32_t *received, uint32_t *dropped) {
+    if (received) *received = sock ? sock->rx_count : 0;
+    if (dropped) *dropped = sock ? sock->rx_drops : 0;
 }
 
 uint16_t microlink_udp_get_local_port(const microlink_udp_socket_t *sock) {

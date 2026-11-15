@@ -48,6 +48,9 @@ static portMUX_TYPE s_jb_mux = portMUX_INITIALIZER_UNLOCKED;
 
 static struct {
     uint32_t tx_packets, rx_packets, rx_late, rx_overflow, underruns, tx_errors;
+    uint32_t rx_not_rtp, rx_other_src;   // datagrams on the RTP port we did not play
+    uint32_t last_src_ip;
+    uint16_t last_src_port;
     int64_t started_us;
 } s_stats;
 
@@ -127,10 +130,25 @@ void voice_set_gains(float in_db, int out_vol)
 static void on_rtp(microlink_udp_socket_t *sock, uint32_t src_ip, uint16_t src_port, const uint8_t *d, size_t len,
                    void *ud)
 {
-    if (!s_running || len < RTP_HDR || (d[0] >> 6) != 2) return;
-    if (s_target_ip && src_ip != s_target_ip) return;          // only our relay server
-    int pt = d[1] & 0x7F;
-    if (pt != 0 && pt != 8) return;                             // PCMU / PCMA
+    if (!s_running) return;
+    if (s_stats.last_src_ip != src_ip || s_stats.last_src_port != src_port) {
+        char s[16];
+        microlink_ip_to_str(src_ip, s);
+        ESP_LOGI(TAG, "RTP in from %s:%u", s, src_port);
+        s_stats.last_src_ip = src_ip;
+        s_stats.last_src_port = src_port;
+    }
+    int pt = len >= RTP_HDR ? d[1] & 0x7F : -1;
+    if (len < RTP_HDR || (d[0] >> 6) != 2 || (pt != 0 && pt != 8)) {   // RTP, PCMU / PCMA only
+        s_stats.rx_not_rtp++;
+        return;
+    }
+    // Only tailnet peers can reach this socket at all (WireGuard). Prefer the
+    // event client, but don't drop a tailnet sender whose address differs.
+    if (s_target_ip && src_ip != s_target_ip) {
+        s_stats.rx_other_src++;
+        if ((src_ip & 0xFFC00000u) != 0x64400000u) return;
+    }
     size_t off = RTP_HDR + 4 * (d[0] & 0x0F);
     if (d[0] & 0x10) {                                          // header extension
         if (len < off + 4) return;
@@ -284,5 +302,15 @@ cJSON *voice_stats_json(void)
     cJSON_AddNumberToObject(o, "rx_late", s_stats.rx_late);
     cJSON_AddNumberToObject(o, "rx_overflow", s_stats.rx_overflow);
     cJSON_AddNumberToObject(o, "underruns", s_stats.underruns);
+    cJSON_AddNumberToObject(o, "rx_not_rtp", s_stats.rx_not_rtp);
+    cJSON_AddNumberToObject(o, "rx_other_src", s_stats.rx_other_src);
+    char src[16] = "";
+    if (s_stats.last_src_ip) microlink_ip_to_str(s_stats.last_src_ip, src);
+    cJSON_AddStringToObject(o, "last_src", src);
+    uint32_t got = 0, dropped = 0;
+    microlink_udp_get_rx_stats(s_sock, &got, &dropped);
+    cJSON_AddNumberToObject(o, "socket_rx", got);          // datagrams lwIP delivered on the RTP port
+    cJSON_AddNumberToObject(o, "socket_rx_dropped", dropped);
+    cJSON_AddBoolToObject(o, "socket", s_sock != NULL);
     return o;
 }
