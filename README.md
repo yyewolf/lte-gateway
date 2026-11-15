@@ -22,6 +22,12 @@ a separate machine on the tailnet.
 |---|---|
 | ![Assembly without the lid](docs/images/assembly-without-top.png) | ![Assembly with the lid on](docs/images/assembly-with-top.png) |
 
+## Sponsorship
+
+JLCPCB sponsored the PCB fabrication and assembly for this project: I paid much less than the
+normal price for the rev 0.6 boards. They have no say in what I write here, and I'm free to
+say anything about them, good or bad.
+
 ## License
 
 The firmware, server, hardware and case here are BSD 3-Clause, see [LICENSE](LICENSE).
