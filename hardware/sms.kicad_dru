@@ -1,0 +1,36 @@
+(version 1)
+# Custom rules on top of Board Setup. JLCPCB 4-layer (JLC04161H-7628) limits are in Board Setup > Constraints;
+# these rules encode the layout decisions from docs/hardware/pcb-layout.md.
+
+# --- JLCPCB manufacturing limits that Board Setup cannot express
+(rule "JLC: via annular ring"
+	(condition "A.Type == 'Via'")
+	(constraint annular_width (min 0.1)))
+
+(rule "JLC: pad to edge"
+	(condition "A.Type == 'Pad'")
+	(constraint edge_clearance (min 0.3)))
+
+# --- LTE antenna feed: 50 ohm coplanar waveguide, the gap to the side ground pour sets the impedance
+(rule "RF: CPWG gap"
+	(condition "A.NetClass == 'RF' && B.Type == 'Zone'")
+	(constraint clearance (min 0.2)))
+
+(rule "RF: no other signals nearby"
+	(condition "A.NetClass == 'RF' && B.Type == 'Track' && B.NetClass != 'RF'")
+	(constraint clearance (min 0.5)))
+
+# --- USB pairs: keep the two traces matched
+(rule "USB: pair skew"
+	(condition "A.NetClass == 'USB'")
+	(constraint skew (max 0.15mm))
+	(constraint max_uncoupled (max 3mm)))
+
+# --- Audio: keep switching nodes and the modem supply away from the analog lines
+(rule "Audio: away from buck switch nodes"
+	(condition "A.NetClass == 'Audio' && B.NetName == '/Power & USB/SW_*'")
+	(constraint clearance (min 10mm)))
+
+(rule "Audio: away from modem supply"
+	(condition "A.NetClass == 'Audio' && B.NetClass == 'VBAT'")
+	(constraint clearance (min 2mm)))

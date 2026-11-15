@@ -1,0 +1,164 @@
+(footprint "X1SON-2_L1.0-W0.6-P0.65-BI-1"
+	(version 20260206)
+	(generator "pcbnew")
+	(generator_version "10.0")
+	(layer "F.Cu")
+	(property "Reference" "REF**"
+		(at 0 -4 90)
+		(layer "F.SilkS")
+		(uuid "cf5520fc-e0bd-474d-9a8a-903164fdc342")
+		(effects
+			(font
+				(size 0.8 0.8)
+				(thickness 0.12)
+			)
+		)
+	)
+	(property "Value" "X1SON-2_L1.0-W0.6-P0.65-BI-1"
+		(at 0 4 0)
+		(layer "F.Fab")
+		(uuid "0732677d-bd04-4b74-b9aa-4ba277ea4973")
+		(effects
+			(font
+				(size 1 1)
+				(thickness 0.15)
+			)
+		)
+	)
+	(property "Datasheet" "~"
+		(at 0 0 0)
+		(layer "F.Fab")
+		(hide yes)
+		(uuid "ba350a4a-d319-4d77-a6a8-049ef925d108")
+		(effects
+			(font
+				(size 1.27 1.27)
+			)
+		)
+	)
+	(property "Description" ""
+		(at 0 0 0)
+		(layer "F.Fab")
+		(hide yes)
+		(uuid "06627db1-3966-459f-b141-d80ec03105c7")
+		(effects
+			(font
+				(size 1.27 1.27)
+			)
+		)
+	)
+	(property "LCSC Part" "C48260"
+		(at 0 0 0)
+		(layer "F.Fab")
+		(hide yes)
+		(uuid "82a7972d-e1be-4b36-8401-eabe22ef6ce0")
+		(effects
+			(font
+				(size 1.27 1.27)
+				(thickness 0.15)
+			)
+		)
+	)
+	(property "MPN" "TPD1E10B06DPYR"
+		(at 0 0 0)
+		(layer "F.SilkS")
+		(hide yes)
+		(uuid "8a95e145-d5c6-4631-9c44-a021bf4c4236")
+		(effects
+			(font
+				(size 1.27 1.27)
+				(thickness 0.15)
+			)
+		)
+	)
+	(sheetname "LTE modem")
+	(sheetfile "modem.kicad_sch")
+	(attr smd)
+	(duplicate_pad_numbers_are_jumpers no)
+	(fp_line
+		(start -0.5 -0.3)
+		(end 0.5 -0.3)
+		(stroke
+			(width 0.05)
+			(type solid)
+		)
+		(layer "F.CrtYd")
+		(uuid "370a7fbc-dfaf-414a-ac46-845073064ae8")
+	)
+	(fp_line
+		(start -0.5 0.3)
+		(end -0.5 -0.3)
+		(stroke
+			(width 0.05)
+			(type solid)
+		)
+		(layer "F.CrtYd")
+		(uuid "10efa8e6-0bc7-4436-a3f3-b3adcb35c9fa")
+	)
+	(fp_line
+		(start 0.5 -0.3)
+		(end 0.5 0.3)
+		(stroke
+			(width 0.05)
+			(type solid)
+		)
+		(layer "F.CrtYd")
+		(uuid "7ca28fa1-322c-4fdf-8baf-84581dd8dc1e")
+	)
+	(fp_line
+		(start 0.5 0.3)
+		(end -0.5 0.3)
+		(stroke
+			(width 0.05)
+			(type solid)
+		)
+		(layer "F.CrtYd")
+		(uuid "bacf5e33-ffeb-498f-811f-6c38d65a003e")
+	)
+	(fp_circle
+		(center -0.5 -0.3)
+		(end -0.47 -0.3)
+		(stroke
+			(width 0.06)
+			(type solid)
+		)
+		(fill no)
+		(layer "F.Fab")
+		(uuid "ca4a8b63-3666-4970-a37c-0d3d2916f399")
+	)
+	(fp_text user "${REFERENCE}"
+		(at 0 0 0)
+		(layer "F.Fab")
+		(uuid "79eede23-95fd-45dd-aaac-78054352649b")
+		(effects
+			(font
+				(size 1 1)
+				(thickness 0.15)
+			)
+		)
+	)
+	(pad "1" smd rect
+		(at -0.5 0)
+		(size 0.6 0.6)
+		(layers "F.Cu" "F.Mask" "F.Paste")
+		(uuid "444ee318-52b4-45d0-9ec0-9a3dbc9a181e")
+	)
+	(pad "2" smd rect
+		(at 0.5 0)
+		(size 0.6 0.6)
+		(layers "F.Cu" "F.Mask" "F.Paste")
+		(uuid "f977e534-7e12-497f-a7d3-6d843328c8ca")
+	)
+	(embedded_fonts no)
+	(model "${KIPRJMOD}/lib/JLC.3dshapes/X1SON-2_L1.0-W0.6-P0.65-BI-1.wrl"
+		(offset
+			(xyz 0 0 0)
+		)
+		(scale
+			(xyz 1 1 1)
+		)
+		(rotate
+			(xyz 0 0 0)
+		)
+	)
+)
