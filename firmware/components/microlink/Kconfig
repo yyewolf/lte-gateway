@@ -20,6 +20,16 @@ menu "MicroLink V2 Configuration"
 
             Zero-copy mode contributed by dj-oyu (https://github.com/dj-oyu/microlink)
 
+    config ML_DERP_REGION
+        int "Home DERP region"
+        default 9
+        range 1 999
+        help
+            Tailscale DERP relay region this node advertises as its home. Peers
+            that cannot reach the gateway directly relay through it, so pick the
+            one closest to you (4 = Frankfurt, 8 = London, 9 = Dallas, 26 =
+            Nuremberg). Region ids are listed in the DERPMap log at boot.
+
     config ML_MAX_PEERS
         int "Maximum simultaneous WireGuard peers"
         default 16

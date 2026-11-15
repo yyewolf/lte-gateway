@@ -9,3 +9,6 @@ pointing at the WireGuard device. esp-netif must not read netif->state as its
 own pointer, so sdkconfig.defaults sets CONFIG_LWIP_PPP_SUPPORT=y, which
 switches esp-netif to netif client data (LWIP_ESP_NETIF_DATA=1). Without it,
 IDF 6.x crashes in esp_netif_is_netif_up when the tunnel comes up.
+
+Local patch: ML_DERP_REGION (home DERP relay, hardcoded to 9/Dallas upstream)
+is a Kconfig option, CONFIG_ML_DERP_REGION; sdkconfig.defaults sets 4 (Frankfurt).

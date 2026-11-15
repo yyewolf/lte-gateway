@@ -49,7 +49,11 @@ CONFIG_ESP_WIFI_AMPDU_RX_ENABLED=n
 # and shows the auth key. Keep it off; settings are done on the USB console instead.
 CONFIG_ML_ENABLE_CONFIG_HTTPD=n
 CONFIG_ML_ENABLE_CELLULAR=n
-CONFIG_ML_MAX_PEERS=8
+# Peers beyond this limit are dropped ("Peer table full" in the log) and cannot
+# reach the gateway. 16 is also wireguard_lwip's WIREGUARD_MAX_PEERS.
+CONFIG_ML_MAX_PEERS=16
+# Home DERP relay: Frankfurt (microlink defaults to Dallas)
+CONFIG_ML_DERP_REGION=4
 
 CONFIG_HTTPD_MAX_REQ_HDR_LEN=1024
 CONFIG_HTTPD_WS_SUPPORT=y

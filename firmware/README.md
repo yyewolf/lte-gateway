@@ -143,3 +143,9 @@ The PDU encoder/decoder runs on a PC:
   events and console run on core 1; microlink puts its network I/O task on core 0 and the
   rest on core 1.
 - The modem is restarted automatically if it stops answering AT three times in a row.
+- The gateway keeps at most 16 tailnet peers (`CONFIG_ML_MAX_PEERS`). Extra peers are dropped
+  (`Peer table full` in the log) and cannot reach it. On a bigger tailnet, limit what the gateway
+  sees with a Tailscale ACL (it only gets the peers allowed to talk to it), and set
+  `priority_peer` to the server's tailnet IP so the server always gets a slot.
+- Peers that can't reach the gateway directly relay through its home DERP region,
+  `CONFIG_ML_DERP_REGION` (4, Frankfurt, by default here; microlink's own default is Dallas).
