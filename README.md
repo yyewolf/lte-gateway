@@ -24,7 +24,7 @@ a separate machine on the tailnet.
 
 ## License
 
-The firmware, server, hardware and case here are BSD 3-Clause — see [LICENSE](LICENSE).
+The firmware, server, hardware and case here are BSD 3-Clause, see [LICENSE](LICENSE).
 
 Tailscale compatibility does not come from Tailscale: `firmware/components/microlink` is
 vendored from [CamM2325/microlink](https://github.com/CamM2325/microlink) (MIT, upstream

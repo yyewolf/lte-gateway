@@ -151,13 +151,13 @@ Every message is one JSON object with a `type` and `uptime_ms`:
 
 | type | fields |
 |---|---|
-| `hello` | `firmware`, `sms_inbox` (count waiting), `call` (current state) — sent on connect |
-| `sms_received` | `id`, `from`, `timestamp`, `text`, `parts`, `complete` — still DELETE it once stored |
+| `hello` | `firmware`, `sms_inbox` (count waiting), `call` (current state); sent on connect |
+| `sms_received` | `id`, `from`, `timestamp`, `text`, `parts`, `complete`; still DELETE it once stored |
 | `sms_sent` / `sms_failed` | `id`, `to`, `parts`, `error` |
-| `ring` | `number` (caller ID, "" if withheld) — about every 5 s while ringing |
+| `ring` | `number` (caller ID, "" if withheld); about every 5 s while ringing |
 | `call_state` | `state`, `direction`, `number`; when it ends: `previous`, `reason` (`ended`, `hangup`, `rejected`, `missed`, `busy`, `no_answer`, `failed`, `modem_down`), `duration_s` |
 | `missed_call` | `number` |
-| `modem` | `registration`, `operator`, `sim`, `rssi_dbm` — on changes |
+| `modem` | `registration`, `operator`, `sim`, `rssi_dbm`; on changes |
 
 The board sends a WebSocket ping every 20 s. Up to 4 clients at once.
 
@@ -168,7 +168,7 @@ While a call is `active`, the board sends the caller's voice as RTP (G.711 µ-la
 the caller (PCMU or PCMA). The board listens on UDP port 4000 and sends to the newest
 `/events` client, port 4000 by default. A client can pick another port by sending
 `{"type": "audio", "port": 5004}` on the WebSocket. Only packets from that client's IP are
-played. The board keeps a 60–160 ms jitter buffer; `/status` shows packet counters under `voice`.
+played. The board keeps a 60-160 ms jitter buffer; `/status` shows packet counters under `voice`.
 
 Codec levels: `gain <input dB> <output volume>` on the console (saved; default 18 dB / 70).
 

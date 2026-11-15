@@ -2,11 +2,11 @@
 
 The server half of the LTE gateway: it bridges the gateway to Discord.
 
-- **SMS in:** every received SMS is posted to a text channel as an embed, then removed from the gateway's flash. Messages that arrived while the server was down are picked up when it reconnects.
-- **SMS out:** reply to an SMS embed (or a call card) to answer that number, or use `/send`. The reply gets ⏳, then ✅ once the network accepted it or ❌ with the reason.
-- **Calls:** an incoming call posts a card with **Answer** / **Reject** buttons (and mentions `notify_user_ids`). The card follows the call: ringing, in call, ended after 1m5s, missed. `/call`, `/answer`, `/hangup` do the same from slash commands.
-- **Call audio:** during a call the bot joins the voice channel. The caller is heard in Discord, and everyone allowed in the channel is mixed and sent to the caller. Outgoing calls join while dialing, so you hear the ringback.
-- **Recordings (optional):** each call is saved as a stereo WAV (left: phone, right: Discord) and posted in the channel when it fits Discord's upload limit.
+- SMS in: every received SMS is posted to a text channel as an embed, then removed from the gateway's flash. Messages that arrived while the server was down are picked up when it reconnects.
+- SMS out: reply to an SMS embed (or a call card) to answer that number, or use `/send`. The reply gets ⏳, then ✅ once the network accepted it or ❌ with the reason.
+- Calls: an incoming call posts a card with Answer / Reject buttons (and mentions `notify_user_ids`). The card follows the call: ringing, in call, ended after 1m5s, missed. `/call`, `/answer`, `/hangup` do the same from slash commands.
+- Call audio: during a call the bot joins the voice channel. The caller is heard in Discord, and everyone allowed in the channel is mixed and sent to the caller. Outgoing calls join while dialing, so you hear the ringback.
+- Recordings (optional): each call is saved as a stereo WAV (left: phone, right: Discord) and posted in the channel when it fits Discord's upload limit.
 - `/status` shows the gateway: firmware, uptime, tailnet, operator, signal, call state.
 
 It talks to the gateway over the tailnet only: REST for commands, a WebSocket (`/events`) for events, and G.711 RTP on UDP for call audio.
@@ -20,7 +20,7 @@ phone ⇄ LTE ⇄ gateway ──tailnet── ltegtw-server ⇄ Discord
 ## Requirements
 
 - The server's host must be on the same tailnet as the gateway, and the gateway must be able to reach the server's UDP port (4000 by default). The gateway sends call audio to the address the server connected from.
-- A Discord bot with the **Message Content** intent enabled (Developer Portal → Bot). Invite it with the `bot` and `applications.commands` scopes and these permissions on the channels: View Channel, Send Messages, Embed Links, Attach Files, Add Reactions, Read Message History, Connect, Speak.
+- A Discord bot with the Message Content intent enabled (Developer Portal → Bot). Invite it with the `bot` and `applications.commands` scopes and these permissions on the channels: View Channel, Send Messages, Embed Links, Attach Files, Add Reactions, Read Message History, Connect, Speak.
 - Go 1.24+, libopus and libdave (Discord's voice end-to-end encryption, DAVE) to build. The prebuilt libdave needs glibc 2.38+ (Debian 13, Ubuntu 24.04 or newer). The Docker image includes both.
 
 ## Configuration
