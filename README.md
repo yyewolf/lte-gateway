@@ -1,5 +1,7 @@
 # lte-gateway
 
+![The rev 0.6 gateway board, powered on](docs/images/pcb-powered-on.png)
+
 A self-hosted LTE SMS + voice gateway: an ESP32-S3 board with a SIMCom LTE Cat-1 modem
 (VoLTE) that joins a Tailscale tailnet over WiFi. It sends and receives SMS and relays
 calls as an RTP audio stream. All the heavy logic (Discord bridge, recording, SIP) runs on
@@ -13,6 +15,12 @@ a separate machine on the tailnet.
 | `hardware/` | KiCad project for the board and its fabrication files ([README](hardware/README.md)) |
 | `server/` | Go server: Discord bridge for SMS, calls and call audio ([README](server/README.md)) |
 | `case/` | 3D-printable snap-fit enclosure ([README](case/README.md)) |
+
+## Pictures
+
+| Assembly without the lid | Assembly with the lid on |
+|---|---|
+| ![Assembly without the lid](docs/images/assembly-without-top.png) | ![Assembly with the lid on](docs/images/assembly-with-top.png) |
 
 ## License
 
