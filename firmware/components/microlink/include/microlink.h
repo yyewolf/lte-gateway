@@ -167,6 +167,29 @@ int microlink_get_peer_count(const microlink_t *ml);
  */
 esp_err_t microlink_get_peer_info(const microlink_t *ml, int index, microlink_peer_info_t *info);
 
+/* ---- Local patch: pinned peers -------------------------------------------
+ * Pinned peers behave like config.priority_peer_ip: when the peer table is full
+ * and a pinned peer arrives, the least-recently-used unpinned peer is evicted.
+ * Peers refused for lack of room are remembered (up to 16), so pinning one of
+ * them adds it right away instead of waiting for the next full MapResponse. */
+#define MICROLINK_MAX_PINNED 8
+
+/**
+ * @brief Replace the list of pinned peers (VPN IPs, host byte order). Safe from any task.
+ * @return ESP_ERR_INVALID_ARG if count > MICROLINK_MAX_PINNED
+ */
+esp_err_t microlink_set_pinned_peers(microlink_t *ml, const uint32_t *ips, int count);
+
+/** @brief true if vpn_ip is pinned or is config.priority_peer_ip */
+bool microlink_is_priority_peer(microlink_t *ml, uint32_t vpn_ip);
+
+/**
+ * @brief Peers the tailnet announced but that have no slot (table full), newest last.
+ * online and direct_path are false. Safe from any task.
+ * @return number written to out
+ */
+int microlink_get_dropped_peers(microlink_t *ml, microlink_peer_info_t *out, int max);
+
 /**
  * @brief Send UDP data to a peer by VPN IP
  * @param ml Handle

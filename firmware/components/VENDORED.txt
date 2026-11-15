@@ -25,3 +25,9 @@ Local patches (call audio):
   The old ring + task path could stall for good once the ring filled before
   a callback was set (Discord->phone audio never reached voice.c). The ring
   is kept for polling users and now also drains on timeout.
+
+Local patch (pinned peers): microlink_set_pinned_peers() adds up to 8 runtime
+priority peers next to config.priority_peer_ip (same LRU eviction when the
+table is full). Peers refused for lack of room, or evicted, are remembered
+(last 16, microlink_get_dropped_peers()) so pinning one adds it at once.
+microlink.h, microlink_internal.h, microlink.c, ml_wg_mgr.c.

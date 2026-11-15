@@ -12,6 +12,8 @@
 #include "esp_log.h"
 #include "esp_timer.h"
 #include "microlink.h"
+#include "peers.h"
+#include "ota.h"
 
 static const char *TAG = "net";
 
@@ -108,7 +110,8 @@ static void on_ml_state(microlink_t *ml, microlink_state_t state, void *ud)
     if (state == ML_STATE_CONNECTED) {
         char ip[16];
         microlink_ip_to_str(microlink_get_vpn_ip(ml), ip);
-        ESP_LOGI(TAG, "Tailnet IP %s: try  curl http://%s/status", ip, ip);
+        ESP_LOGI(TAG, "Tailnet IP %s: try  curl http://%s/status  or open http://%s/ui", ip, ip, ip);
+        ota_mark_valid("tailnet up");
     }
     board_led(PIN_LED_RED, state != ML_STATE_CONNECTED);
 }
@@ -137,6 +140,7 @@ static void net_task(void *arg)
         ESP_LOGE(TAG, "microlink_init failed");
         vTaskDelete(NULL);
     }
+    peers_apply(s_ml);                // pinned peers always get a tunnel slot
     microlink_set_state_callback(s_ml, on_ml_state, NULL);
     if (microlink_start(s_ml) != ESP_OK) ESP_LOGE(TAG, "microlink_start failed");
     vTaskDelete(NULL);
@@ -208,19 +212,4 @@ void net_get_status(net_status_t *out)
         microlink_ip_to_str(microlink_get_vpn_ip(s_ml), out->tailnet_ip);
         out->peers = microlink_get_peer_count(s_ml);
     }
-}
-
-void net_print_peers(void)
-{
-    if (!s_ml) { printf("Tailnet not started.\n"); return; }
-    int n = microlink_get_peer_count(s_ml);
-    for (int i = 0; i < n; i++) {
-        microlink_peer_info_t p;
-        if (microlink_get_peer_info(s_ml, i, &p) != ESP_OK) continue;
-        char ip[16];
-        microlink_ip_to_str(p.vpn_ip, ip);
-        printf("  %-15s %-32s %s %s\n", ip, p.hostname, p.online ? "online " : "offline",
-               p.direct_path ? "direct" : "relay (DERP)");
-    }
-    if (!n) printf("  (no peers)\n");
 }

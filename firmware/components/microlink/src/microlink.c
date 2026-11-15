@@ -285,9 +285,10 @@ microlink_t *microlink_init(const microlink_config_t *config) {
     ml->stun_rx_queue = xQueueCreate(ML_STUN_RX_QUEUE_DEPTH, sizeof(ml_rx_packet_t));
     ml->coord_cmd_queue = xQueueCreate(ML_COORD_CMD_QUEUE_DEPTH, sizeof(ml_coord_cmd_t));
     ml->peer_update_queue = xQueueCreate(ML_PEER_UPDATE_QUEUE_DEPTH, sizeof(ml_peer_update_t *));
+    ml->pin_mutex = xSemaphoreCreateMutex();
 
     if (!ml->derp_tx_queue || !ml->disco_rx_queue || !ml->wg_rx_queue ||
-        !ml->stun_rx_queue || !ml->coord_cmd_queue || !ml->peer_update_queue) {
+        !ml->stun_rx_queue || !ml->coord_cmd_queue || !ml->peer_update_queue || !ml->pin_mutex) {
         ESP_LOGE(TAG, "Failed to create queues");
         microlink_destroy(ml);
         return NULL;
@@ -564,6 +565,7 @@ void microlink_destroy(microlink_t *ml) {
     if (ml->stun_rx_queue) vQueueDelete(ml->stun_rx_queue);
     if (ml->coord_cmd_queue) vQueueDelete(ml->coord_cmd_queue);
     if (ml->peer_update_queue) vQueueDelete(ml->peer_update_queue);
+    if (ml->pin_mutex) vSemaphoreDelete(ml->pin_mutex);
 
     /* Delete event group */
     if (ml->events) vEventGroupDelete(ml->events);
@@ -608,6 +610,53 @@ esp_err_t microlink_get_peer_info(const microlink_t *ml, int index, microlink_pe
     info->online = p->active;
     info->direct_path = p->has_direct_path;
     return ESP_OK;
+}
+
+/* ============================================================================
+ * Pinned peers (local patch)
+ * ========================================================================== */
+
+esp_err_t microlink_set_pinned_peers(microlink_t *ml, const uint32_t *ips, int count) {
+    if (!ml || count < 0 || count > MICROLINK_MAX_PINNED || (count && !ips)) return ESP_ERR_INVALID_ARG;
+    xSemaphoreTake(ml->pin_mutex, portMAX_DELAY);
+    for (int i = 0; i < count; i++) ml->pinned_ips[i] = ips[i];
+    ml->pinned_count = count;
+    xSemaphoreGive(ml->pin_mutex);
+
+    /* Let wg_mgr add any newly pinned peer it had to refuse earlier */
+    ml_peer_update_t *update = calloc(1, sizeof(ml_peer_update_t));
+    if (!update) return ESP_ERR_NO_MEM;
+    update->action = ML_PEER_REPIN;
+    if (xQueueSend(ml->peer_update_queue, &update, pdMS_TO_TICKS(100)) != pdTRUE) {
+        free(update);
+        return ESP_ERR_TIMEOUT;
+    }
+    return ESP_OK;
+}
+
+bool microlink_is_priority_peer(microlink_t *ml, uint32_t vpn_ip) {
+    if (!ml || vpn_ip == 0) return false;
+    if (vpn_ip == ml->config.priority_peer_ip) return true;
+    bool found = false;
+    xSemaphoreTake(ml->pin_mutex, portMAX_DELAY);
+    for (int i = 0; i < ml->pinned_count && !found; i++) found = ml->pinned_ips[i] == vpn_ip;
+    xSemaphoreGive(ml->pin_mutex);
+    return found;
+}
+
+int microlink_get_dropped_peers(microlink_t *ml, microlink_peer_info_t *out, int max) {
+    if (!ml || !out || max <= 0) return 0;
+    int n = 0;
+    xSemaphoreTake(ml->pin_mutex, portMAX_DELAY);
+    for (int i = 0; i < ml->dropped_count && n < max; i++, n++) {
+        const ml_peer_update_t *d = &ml->dropped[i];
+        memset(&out[n], 0, sizeof(out[n]));
+        out[n].vpn_ip = d->vpn_ip;
+        strncpy(out[n].hostname, d->hostname, sizeof(out[n].hostname) - 1);
+        memcpy(out[n].public_key, d->public_key, 32);
+    }
+    xSemaphoreGive(ml->pin_mutex);
+    return n;
 }
 
 /* ============================================================================

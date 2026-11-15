@@ -19,7 +19,6 @@ void net_start(void);
 void net_stop(void);
 void net_get_status(net_status_t *out);
 uint32_t net_tailnet_ip(void);     // host byte order, 0 when not connected
-void net_print_peers(void);
 
 typedef struct microlink_s microlink_t;
 microlink_t *net_microlink(void);   // NULL before net_start

@@ -74,6 +74,7 @@ extern "C" {
 /* Protocol limits */
 #define ML_MAX_PEERS            CONFIG_ML_MAX_PEERS
 #define ML_MAX_ENDPOINTS        8
+#define ML_MAX_DROPPED          16      /* local patch: remembered refused peers */
 #define ML_MAX_PACKET_SIZE      1500
 #define ML_DERP_MAX_FRAME       (ML_MAX_PACKET_SIZE + 64)
 
@@ -222,6 +223,7 @@ typedef struct {
         ML_PEER_ADD,
         ML_PEER_REMOVE,
         ML_PEER_UPDATE_ENDPOINT,
+        ML_PEER_REPIN,          /* Local patch: pinned list changed, re-add dropped pinned peers */
     } action;
     uint32_t vpn_ip;
     uint8_t public_key[32];
@@ -393,6 +395,18 @@ struct microlink_s {
     /* Peers (owned exclusively by wg_mgr task) */
     ml_peer_t peers[ML_MAX_PEERS];
     int peer_count;
+
+    /* Local patch: pinned peers. Extra priority peers set by the app at runtime
+     * (microlink_set_pinned_peers); treated like config.priority_peer_ip.
+     * Guarded by pin_mutex. */
+    SemaphoreHandle_t pin_mutex;
+    uint32_t pinned_ips[MICROLINK_MAX_PINNED];
+    int pinned_count;
+    /* Peers refused because the table was full, or evicted for a priority peer.
+     * Kept so a peer pinned later can be added without waiting for a new MapResponse.
+     * Written by wg_mgr under pin_mutex. Oldest first. */
+    ml_peer_update_t dropped[ML_MAX_DROPPED];
+    int dropped_count;
 
     /* STUN results (written by coord, read by coord only) */
     uint32_t stun_public_ip;

@@ -15,6 +15,9 @@
 #include "esp_timer.h"
 #include "esp_heap_caps.h"
 #include "nvs.h"
+#include "peers.h"
+#include "ota.h"
+#include "microlink.h"
 
 static void join_args(int argc, char **argv, int from, char *out, size_t len)
 {
@@ -149,7 +152,32 @@ static int cmd_gain(int argc, char **argv)
     return 0;
 }
 
-static int cmd_peers(int argc, char **argv) { net_print_peers(); return 0; }
+static int cmd_peers(int argc, char **argv) { peers_print(); return 0; }
+
+static int pin_cmd(int argc, char **argv, bool pin)
+{
+    uint32_t ip = argc == 2 ? microlink_parse_ip(argv[1]) : 0;
+    if (!ip) {
+        printf("usage: %s <100.x.y.z>\n", argv[0]);
+        return 1;
+    }
+    const char *why = NULL;
+    esp_err_t e = pin ? peers_pin(ip, &why) : peers_unpin(ip, &why);
+    printf("%s\n", e == ESP_OK ? (pin ? "pinned (saved)" : "unpinned (saved)") : why);
+    return e == ESP_OK ? 0 : 1;
+}
+static int cmd_pin(int argc, char **argv) { return pin_cmd(argc, argv, true); }
+static int cmd_unpin(int argc, char **argv) { return pin_cmd(argc, argv, false); }
+
+static int cmd_ota(int argc, char **argv)
+{
+    cJSON *j = ota_status_json();
+    char *s = cJSON_Print(j);
+    printf("%s\n", s ? s : "?");
+    cJSON_free(s);
+    cJSON_Delete(j);
+    return 0;
+}
 static int cmd_reboot(int argc, char **argv) { gw_restart(); return 0; }
 
 // Drops microlink's cached peer table (NVS namespace "ml_peers") and restarts.
@@ -198,7 +226,10 @@ void console_start(void)
     reg("config", "Show the saved settings", cmd_config);
     reg("set", "set <key> [value]: change a setting (no value = erase)", cmd_set);
     reg("at", "Send an AT command to the modem, e.g. 'at AT+CSQ'", cmd_at);
-    reg("peers", "List tailnet peers", cmd_peers);
+    reg("peers", "List tailnet peers, pinned ones and those with no slot", cmd_peers);
+    reg("pin", "pin <100.x.y.z>: always keep a tunnel slot for this peer (saved)", cmd_pin);
+    reg("unpin", "unpin <100.x.y.z>", cmd_unpin);
+    reg("ota", "Firmware slots and update state", cmd_ota);
     reg("peers_clear", "Forget cached tailnet peers and restart (keeps the node key)", cmd_peers_clear);
     reg("sms", "sms <number> <text>: queue an SMS", cmd_sms);
     reg("inbox", "List received SMS kept in flash", cmd_inbox);

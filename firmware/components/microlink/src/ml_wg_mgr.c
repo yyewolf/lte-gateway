@@ -29,6 +29,7 @@
 #include "wireguard.h"
 #include "mbedtls/base64.h"
 #include <string.h>
+#include <stdlib.h>
 #include <errno.h>
 
 /* Forward declaration for zero-copy path */
@@ -373,6 +374,105 @@ static int find_peer_by_disco_key(microlink_t *ml, const uint8_t *disco_key) {
     return -1;
 }
 
+/* ---- Local patch: pinned peers + remembered refused peers ---------------- */
+
+static bool is_priority(microlink_t *ml, uint32_t vpn_ip) {
+    return microlink_is_priority_peer(ml, vpn_ip);
+}
+
+/* Remember a peer that has no slot (newest last, oldest dropped when full). */
+static void remember_dropped(microlink_t *ml, const ml_peer_update_t *update) {
+    xSemaphoreTake(ml->pin_mutex, portMAX_DELAY);
+    int i;
+    for (i = 0; i < ml->dropped_count; i++) {
+        if (memcmp(ml->dropped[i].public_key, update->public_key, 32) == 0) break;
+    }
+    if (i == ml->dropped_count && ml->dropped_count == ML_MAX_DROPPED) i = 0;   /* evict oldest */
+    if (i < ml->dropped_count) {
+        memmove(&ml->dropped[i], &ml->dropped[i + 1],
+                (ml->dropped_count - i - 1) * sizeof(ml_peer_update_t));
+        ml->dropped_count--;
+    }
+    ml->dropped[ml->dropped_count] = *update;
+    ml->dropped[ml->dropped_count].action = ML_PEER_ADD;
+    ml->dropped_count++;
+    xSemaphoreGive(ml->pin_mutex);
+}
+
+static void forget_dropped(microlink_t *ml, const uint8_t *public_key) {
+    xSemaphoreTake(ml->pin_mutex, portMAX_DELAY);
+    for (int i = 0; i < ml->dropped_count; i++) {
+        if (memcmp(ml->dropped[i].public_key, public_key, 32) == 0) {
+            memmove(&ml->dropped[i], &ml->dropped[i + 1],
+                    (ml->dropped_count - i - 1) * sizeof(ml_peer_update_t));
+            ml->dropped_count--;
+            break;
+        }
+    }
+    xSemaphoreGive(ml->pin_mutex);
+}
+
+/* Endpoint/DERP patch for a peer we don't have a slot for, so a later re-add is fresh. */
+static void patch_dropped(microlink_t *ml, const ml_peer_update_t *update) {
+    xSemaphoreTake(ml->pin_mutex, portMAX_DELAY);
+    for (int i = 0; i < ml->dropped_count; i++) {
+        ml_peer_update_t *d = &ml->dropped[i];
+        if (memcmp(d->public_key, update->public_key, 32) != 0) continue;
+        if (update->endpoint_count > 0) {
+            d->endpoint_count = update->endpoint_count;
+            memcpy(d->endpoints, update->endpoints, sizeof(d->endpoints));
+        }
+        if (update->derp_region > 0) d->derp_region = update->derp_region;
+        break;
+    }
+    xSemaphoreGive(ml->pin_mutex);
+}
+
+static void peer_to_update(const ml_peer_t *p, ml_peer_update_t *u) {
+    memset(u, 0, sizeof(*u));
+    u->action = ML_PEER_ADD;
+    u->vpn_ip = p->vpn_ip;
+    memcpy(u->public_key, p->public_key, 32);
+    memcpy(u->disco_key, p->disco_key, 32);
+    strncpy(u->hostname, p->hostname, sizeof(u->hostname) - 1);
+    u->derp_region = p->derp_region;
+    u->endpoint_count = p->endpoint_count;
+    for (int i = 0; i < p->endpoint_count && i < ML_MAX_ENDPOINTS; i++) {
+        u->endpoints[i].ip = p->endpoints[i].ip;
+        u->endpoints[i].port = p->endpoints[i].port;
+        u->endpoints[i].is_ipv6 = p->endpoints[i].is_ipv6;
+    }
+}
+
+static int add_peer(microlink_t *ml, const ml_peer_update_t *update);
+
+/* Pinned list changed: add the refused peers that are now pinned. */
+static void repin(microlink_t *ml) {
+    ml_peer_update_t *u = malloc(sizeof(ml_peer_update_t));
+    if (!u) return;
+    for (;;) {
+        bool found = false;
+        xSemaphoreTake(ml->pin_mutex, portMAX_DELAY);
+        for (int i = 0; i < ml->dropped_count; i++) {
+            uint32_t ip = ml->dropped[i].vpn_ip;
+            bool pinned = ip == ml->config.priority_peer_ip;
+            for (int j = 0; j < ml->pinned_count && !pinned; j++) pinned = ml->pinned_ips[j] == ip;
+            if (pinned) { *u = ml->dropped[i]; found = true; break; }
+        }
+        xSemaphoreGive(ml->pin_mutex);
+        if (!found) break;
+        char ip_str[16];
+        microlink_ip_to_str(u->vpn_ip, ip_str);
+        ESP_LOGI(TAG, "Pinned peer %s (%s) had no slot, adding it now", u->hostname, ip_str);
+        if (add_peer(ml, u) < 0) {
+            forget_dropped(ml, u->public_key);   /* no room even after eviction: don't loop */
+            remember_dropped(ml, u);             /* keep it listed (moved to newest) */
+            break;
+        }
+    }
+    free(u);
+}
+
 static int add_peer(microlink_t *ml, const ml_peer_update_t *update) {
     /* Peer allowlist filter: don't waste WG slots on non-allowed peers.
      * Still process updates for existing peers (they may become allowed later). */
@@ -394,14 +494,14 @@ static int add_peer(microlink_t *ml, const ml_peer_update_t *update) {
             }
         }
 
-        /* Peer table full — evict LRU non-priority peer if incoming peer is priority */
-        if (idx < 0 && ml->config.priority_peer_ip != 0 &&
-            update->vpn_ip == ml->config.priority_peer_ip) {
+        /* Peer table full — evict LRU non-priority peer if incoming peer is priority
+         * (local patch: priority = config.priority_peer_ip or a pinned peer) */
+        if (idx < 0 && is_priority(ml, update->vpn_ip)) {
             uint64_t oldest_ms = UINT64_MAX;
             int evict_idx = -1;
             for (int i = 0; i < ML_MAX_PEERS; i++) {
                 if (!ml->peers[i].active) continue;
-                if (ml->peers[i].vpn_ip == ml->config.priority_peer_ip) continue;
+                if (is_priority(ml, ml->peers[i].vpn_ip)) continue;
                 uint64_t last_activity = ml->peers[i].last_send_ms;
                 if (ml->peers[i].last_pong_recv_ms > last_activity)
                     last_activity = ml->peers[i].last_pong_recv_ms;
@@ -419,6 +519,12 @@ static int add_peer(microlink_t *ml, const ml_peer_update_t *update) {
                     wireguardif_remove_peer((struct netif *)ml->wg_netif,
                                             ml->peers[evict_idx].wg_peer_index);
                 }
+                ml_peer_update_t *ev = malloc(sizeof(ml_peer_update_t));
+                if (ev) {
+                    peer_to_update(&ml->peers[evict_idx], ev);
+                    remember_dropped(ml, ev);
+                    free(ev);
+                }
                 ml->peers[evict_idx].active = false;
                 idx = evict_idx;
             }
@@ -427,12 +533,15 @@ static int add_peer(microlink_t *ml, const ml_peer_update_t *update) {
         if (idx < 0) {
             ESP_LOGW(TAG, "Peer table full (%d slots), cannot add %s",
                      ML_MAX_PEERS, update->hostname);
+            remember_dropped(ml, update);
             return -1;
         }
         if (idx >= ml->peer_count) {
             ml->peer_count = idx + 1;
         }
     }
+
+    forget_dropped(ml, update->public_key);
 
     ml_peer_t *p = &ml->peers[idx];
     p->vpn_ip = update->vpn_ip;
@@ -588,6 +697,7 @@ static int add_peer(microlink_t *ml, const ml_peer_update_t *update) {
 }
 
 static void remove_peer(microlink_t *ml, const ml_peer_update_t *update) {
+    forget_dropped(ml, update->public_key);
     int idx = find_peer_by_key(ml, update->public_key);
     if (idx < 0) return;
 
@@ -639,8 +749,13 @@ static void process_peer_updates(microlink_t *ml) {
                     }
                     ESP_LOGI(TAG, "Peer patched: %s (eps=%d derp=%d)",
                              p->hostname, p->endpoint_count, p->derp_region);
+                } else {
+                    patch_dropped(ml, update);
                 }
             }
+            break;
+        case ML_PEER_REPIN:
+            repin(ml);
             break;
         }
         free(update);
