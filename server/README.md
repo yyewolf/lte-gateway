@@ -45,7 +45,7 @@ Copy [`config.example.yaml`](config.example.yaml) to `config.yaml` and fill it i
 
 ## Run with Docker
 
-CI publishes the image to `ghcr.io/yyewolf/ltegtw-server` for amd64 and arm64: `latest` follows `main`, and a
+CI publishes the image to `ghcr.io/yyewolf/lte-gateway-server` for amd64 and arm64: `latest` follows `main`, and a
 `server-vX.Y.Z` tag publishes `X.Y.Z` and `X.Y`.
 
 ```sh

@@ -14,7 +14,7 @@ on:
   workflow_dispatch:
 
 env:
-  IMAGE: ghcr.io/${{ github.repository_owner }}/ltegtw-server
+  IMAGE: ghcr.io/${{ github.repository_owner }}/lte-gateway-server
   LIBDAVE_VERSION: v1.1.0
 
 jobs:
@@ -66,7 +66,7 @@ jobs:
             type=match,pattern=server-v(.*),group=1
             type=match,pattern=server-v(\d+\.\d+),group=1
           labels: |
-            org.opencontainers.image.title=ltegtw-server
+            org.opencontainers.image.title=lte-gateway-server
             org.opencontainers.image.description=Discord bridge for the LTE SMS and voice gateway
       - uses: docker/build-push-action@v6
         with:

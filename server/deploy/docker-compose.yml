@@ -3,7 +3,7 @@
 # tailnet with host networking is the simplest setup.
 services:
   ltegtw:
-    image: ghcr.io/yyewolf/ltegtw-server:latest
+    image: ghcr.io/yyewolf/lte-gateway-server:latest
     build: ..
     restart: unless-stopped
     network_mode: host
