@@ -21,6 +21,61 @@ From an "ESP-IDF CMD" or PowerShell window:
 If flashing can't connect: hold BOOT (SW202), tap RESET (SW201), release BOOT.
 Leave the monitor with Ctrl+].
 
+**Updating from 0.3.x:** flash once over USB (`idf.py -p COM5 flash`, no erase needed, settings
+and SMS are kept). That updates the bootloader, which is what does the automatic rollback.
+After that, updates can go over the tailnet (below).
+
+## Admin page
+
+Open `http://lte-gateway/ui` (or `http://<tailnet IP>/`) in a browser on a tailnet machine. It
+only answers on the tailnet IP, never on the LAN. Paste the `api_token` once (kept in that
+browser). It shows the status, the tailnet peers with a Pin button each, and the firmware
+slots with an Update button.
+
+## Pinned peers
+
+The gateway keeps at most 16 tailnet peers in its tunnel table (`CONFIG_ML_MAX_PEERS`). On a
+bigger tailnet, peers that arrive when the table is full get no slot and can't reach it.
+A **pinned** peer always gets a slot: when it arrives (or when you pin it) and the table is full,
+the least recently used unpinned peer is evicted for it. Up to 8 pins, saved in flash.
+
+    curl http://lte-gateway/peers
+    -> {"peers": [{"ip": "100.64.0.2", "hostname": "server.tailxxxx.ts.net", "path": "direct",
+                   "pinned": true, "priority_setting": false}, ...],
+        "dropped": [{"ip": "100.64.0.7", "hostname": "phone...", "pinned": false}],   # no slot
+        "pinned": [{"ip": "100.64.0.2", "hostname": "server..."}],
+        "priority_peer": null, "max_peers": 16, "max_pinned": 8}
+    curl -X POST http://lte-gateway/peers/pin   -d '{"ip": "100.64.0.7"}'
+    curl -X POST http://lte-gateway/peers/unpin -d '{"ip": "100.64.0.7"}'
+
+`dropped` lists the last 16 peers refused for lack of room; pinning one of them adds it right
+away. The `priority_peer` setting still works and acts like one more pin. On the console:
+`peers`, `pin <ip>`, `unpin <ip>`.
+
+## Firmware updates over the tailnet
+
+Needs `api_token` to be set (the update endpoints refuse to work without it), and no call in
+progress (`?force=1` cuts the call). Send the app image, not the merged one:
+
+    idf.py build
+    curl -H "Authorization: Bearer $TOKEN" --data-binary @build/lte_gateway.bin http://lte-gateway/ota
+    -> {"result": "ok", "version": "0.4.1", "previous": "0.4.0", "partition": "ota_1", ...}
+
+PowerShell: `curl.exe -H "Authorization: Bearer $TOKEN" --data-binary "@build\lte_gateway.bin" http://lte-gateway/ota`
+(or use the Update button on the admin page).
+
+The gateway checks the image header first (ESP32-S3, project `lte_gateway`), writes it to the
+other 4 MB app slot, verifies its checksum, restarts, and sends an `ota` event on `/events`.
+The new firmware starts "pending": it is kept once it reaches the tailnet. If it crashes, or is
+not on the tailnet within 5 minutes, the gateway goes back to the previous firmware by itself,
+so a bad build can't lock you out. A reboot before it is confirmed also goes back.
+
+    curl http://lte-gateway/ota                      # both slots, versions, state
+    curl -X POST -H "Authorization: Bearer $TOKEN" http://lte-gateway/ota/rollback   # boot the other slot
+
+Bump `PROJECT_VER` in `CMakeLists.txt` and `GW_VERSION` in `main/app.h` for each release so
+you can tell the slots apart.
+
 ## First setup
 
 1. In the Tailscale admin console, create an auth key (Settings > Keys > Generate auth key).
@@ -118,7 +173,9 @@ Codec levels: `gain <input dB> <output volume>` on the console (saved; default 1
     config              saved settings (secrets masked)
     set <key> <value>   change a setting; then 'reboot'
     at <command>        raw AT command, e.g. at AT+CSQ
-    peers               tailnet peers, direct or relayed
+    peers               tailnet peers (direct or relayed), pinned ones, ones with no slot
+    pin <ip> / unpin <ip>  always keep a tunnel slot for a peer (saved)
+    ota                 firmware slots and update state
     peers_clear         forget cached peers and restart (keeps the tailnet identity)
     sms <number> <text> queue an SMS
     inbox               received SMS kept in flash
@@ -147,6 +204,6 @@ The PDU encoder/decoder runs on a PC:
 - The gateway keeps at most 16 tailnet peers (`CONFIG_ML_MAX_PEERS`). Extra peers are dropped
   (`Peer table full` in the log) and cannot reach it. On a bigger tailnet, limit what the gateway
   sees with a Tailscale ACL (it only gets the peers allowed to talk to it), and set
-  `priority_peer` to the server's tailnet IP so the server always gets a slot.
+  `priority_peer` to the server's tailnet IP (or pin it) so the server always gets a slot.
 - Peers that can't reach the gateway directly relay through its home DERP region,
   `CONFIG_ML_DERP_REGION` (4, Frankfurt, by default here; microlink's own default is Dallas).
