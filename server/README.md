@@ -21,7 +21,7 @@ phone ⇄ LTE ⇄ gateway ──tailnet── ltegtw-server ⇄ Discord
 
 - The server's host must be on the same tailnet as the gateway, and the gateway must be able to reach the server's UDP port (4000 by default). The gateway sends call audio to the address the server connected from.
 - A Discord bot with the **Message Content** intent enabled (Developer Portal → Bot). Invite it with the `bot` and `applications.commands` scopes and these permissions on the channels: View Channel, Send Messages, Embed Links, Attach Files, Add Reactions, Read Message History, Connect, Speak.
-- Go 1.24+, libopus and libdave (Discord's voice end-to-end encryption, DAVE) to build. The Docker image includes both.
+- Go 1.24+, libopus and libdave (Discord's voice end-to-end encryption, DAVE) to build. The prebuilt libdave needs glibc 2.38+ (Debian 13, Ubuntu 24.04 or newer). The Docker image includes both.
 
 ## Configuration
 
