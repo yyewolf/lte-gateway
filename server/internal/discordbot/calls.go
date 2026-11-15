@@ -180,10 +180,24 @@ func (b *Bot) startVoiceLocked(c gateway.Call) {
 	b.relay.Reset()
 	go bridge.Run()
 
-	conn := b.dc.VoiceManager.CreateConn(b.guildID)
-	vs.conn = conn
 	b.vc = vs
+	prev := b.lastStop
 	go func() {
+		// A call right after another one: let the previous voice connection
+		// finish closing first, or CreateConn hands back the closing one and
+		// Open times out.
+		if prev != nil {
+			<-prev
+		}
+		b.mu.Lock()
+		if b.vc != vs { // the call ended before we joined
+			b.mu.Unlock()
+			return
+		}
+		conn := b.dc.VoiceManager.CreateConn(b.guildID)
+		vs.conn = conn
+		b.mu.Unlock()
+
 		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 		defer cancel()
 		if err := conn.Open(ctx, b.voiceID, false, false); err != nil {
@@ -192,7 +206,7 @@ func (b *Bot) startVoiceLocked(c gateway.Call) {
 		}
 		b.mu.Lock()
 		defer b.mu.Unlock()
-		if b.vc != vs { // the call ended while joining
+		if b.vc != vs { // the call ended while joining; stopVoiceLocked closes conn
 			return
 		}
 		conn.SetOpusFrameReceiver(bridge.Receiver())
@@ -211,12 +225,16 @@ func (b *Bot) stopVoiceLocked(ctx context.Context, post bool) <-chan struct{} {
 		return done
 	}
 	b.vc = nil
+	b.lastStop = done
+	conn := vs.conn // nil when the join had not started yet
 	vs.bridge.SetRecorder(nil)
 	go func() {
 		defer close(done)
 		closeCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
 		defer cancel()
-		vs.conn.Close(closeCtx)
+		if conn != nil {
+			conn.Close(closeCtx)
+		}
 		vs.bridge.Stop()
 		b.log.Info("left voice channel",
 			slog.Uint64("to_discord", vs.bridge.framesToDiscord.Load()),

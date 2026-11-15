@@ -68,6 +68,8 @@ type Bot struct {
 	call gateway.Call
 	card snowflake.ID // message id of the current call card
 	vc   *voiceSession
+	// Closed when the last voice session has fully left the channel.
+	lastStop <-chan struct{}
 }
 
 type msgRef struct {
