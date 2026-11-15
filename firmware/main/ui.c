@@ -1,6 +1,6 @@
-// Admin page at http://<gateway>/ui, tailnet only. The page itself holds no data and is served
-// without the token; its requests to /status, /peers and /ota carry the token, which the
-// browser keeps in localStorage.
+// Admin page at http://<gateway>/ui. The page itself holds no data and is served without the
+// token; its requests to /status, /peers and /ota carry the token, which the browser keeps in
+// localStorage. Over the tailnet everything works; over the LAN only the peers part does.
 #include "ui.h"
 #include "api.h"
 
@@ -50,13 +50,14 @@ static const char PAGE[] =
 "function esc(s){return String(s).replace(/[&<>\"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','\"':'&quot;',\"'\":'&#39;'}[c]))}"
 "async function api(path,opt){const r=await fetch(path,Object.assign({},opt,{headers:hdr(opt&&opt.headers)}));"
 "if(r.status==401){$('auth').hidden=false;throw new Error('Token missing or wrong')}"
+"if(r.status==403){const e=new Error('tailnet only');e.lan=true;throw e}"
 "const j=await r.json().catch(()=>({}));if(!r.ok)throw new Error(j.error||('HTTP '+r.status));return j}"
 "function up(s){const d=Math.floor(s/86400),h=Math.floor(s%86400/3600),m=Math.floor(s%3600/60);return(d?d+'d ':'')+h+'h '+m+'m'}"
 "async function loadStatus(){const s=await api('/status');$('auth').hidden=!!tok;"
 "$('st').innerHTML='Firmware <b>'+esc(s.firmware)+'</b>, up '+up(s.uptime_s)+'<br>Tailnet '+esc(s.tailnet.ip)+' ('+esc(s.tailnet.state)+'), WiFi '+esc(s.wifi.ssid)+' '+s.wifi.rssi_dbm+' dBm'"
 "+'<br>Modem '+esc(s.modem.registration)+' '+esc(s.modem.operator||'')+', call '+esc(s.call.state)}"
 "function btn(ip,pinned){return pinned?'<button onclick=\"unpin(\\''+ip+'\\')\">Unpin</button>':'<button onclick=\"pin(\\''+ip+'\\')\">Pin</button>'}"
-"async function loadPeers(){const p=await api('/peers');"
+"async function loadPeers(){const p=await api('/peers');$('auth').hidden=!!tok;"
 "$('pinfo').textContent=p.peers.length+' of '+p.max_peers+' tunnel slots used, '+p.pinned.length+' of '+p.max_pinned+' pinned.'+(p.priority_peer?' Server (priority_peer setting): '+p.priority_peer+'.':'');"
 "const seen=new Set();"
 "$('peers').innerHTML=p.peers.map(x=>{seen.add(x.ip);return '<tr><td class=host>'+esc(x.hostname.split('.')[0])+(x.priority_setting?' <span class=tag>server</span>':'')+(x.pinned?' <span class=\"tag ok\">pinned</span>':'')+'</td><td class=mono>'+x.ip+'</td><td>'+(x.path=='direct'?'<span class=ok>direct</span>':'<span class=warn>relay</span>')+'</td><td>'+btn(x.ip,x.pinned)+'</td></tr>'}).join('')||'<tr><td colspan=4 class=mut>No peers yet</td></tr>';"
@@ -69,7 +70,9 @@ static const char PAGE[] =
 "+'<br>Other slot ('+(t?t.partition:'-')+'): '+(t&&t.version?esc(t.version)+' <span class=mut>'+t.state+'</span>':'empty')"
 "+(o.rollback_enabled?'':'<br><span class=warn>Automatic rollback is off: flash once over USB to update the bootloader.</span>');"
 "$('rb').disabled=!(t&&t.version&&t.state!='invalid'&&t.state!='aborted')}"
-"async function load(){say('');try{await loadStatus();await loadPeers();await loadFw()}catch(e){say(e.message,'bad')}}"
+"const LAN='<span class=warn>Only over the tailnet. Opened from the LAN, this page can only pin peers.</span>';"
+"async function part(f,id){try{await f()}catch(e){if(!(e.lan&&id))throw e;$(id).innerHTML=LAN;if(id=='fw')$('up').disabled=$('rb').disabled=true}}"
+"async function load(){say('');try{await part(loadPeers);await part(loadStatus,'st');await part(loadFw,'fw')}catch(e){say(e.message,'bad')}}"
 "async function pin(ip){ip=ip.trim();if(!ip)return;try{await api('/peers/pin',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({ip})});say('Pinned '+ip,'ok');loadPeers()}catch(e){say(e.message,'bad')}}"
 "async function unpin(ip){try{await api('/peers/unpin',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({ip})});say('Unpinned '+ip,'ok');loadPeers()}catch(e){say(e.message,'bad')}}"
 "function waitBack(){let n=0;const t=setInterval(async()=>{n++;try{await loadFw();await loadStatus();clearInterval(t);say('Back online.','ok');loadPeers()}catch(e){if(n>60){clearInterval(t);say('Not back after 3 minutes. Check the USB console.','bad')}}},3000)}"

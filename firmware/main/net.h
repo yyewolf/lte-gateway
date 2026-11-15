@@ -19,6 +19,7 @@ void net_start(void);
 void net_stop(void);
 void net_get_status(net_status_t *out);
 uint32_t net_tailnet_ip(void);     // host byte order, 0 when not connected
+uint32_t net_lan_ip(void);         // WiFi IP, host byte order, 0 when WiFi is down
 
 typedef struct microlink_s microlink_t;
 microlink_t *net_microlink(void);   // NULL before net_start

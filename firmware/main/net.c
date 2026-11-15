@@ -11,6 +11,7 @@
 #include "esp_netif.h"
 #include "esp_log.h"
 #include "esp_timer.h"
+#include "lwip/inet.h"
 #include "microlink.h"
 #include "peers.h"
 #include "ota.h"
@@ -187,6 +188,13 @@ void net_stop(void)
     // boot does not hit the PMF "come back later" refusal.
     if (s_retry) esp_timer_stop(s_retry);
     if (s_sta && esp_wifi_disconnect() == ESP_OK) vTaskDelay(pdMS_TO_TICKS(200));
+}
+
+uint32_t net_lan_ip(void)
+{
+    esp_netif_ip_info_t ip;
+    if (!s_ev || !(xEventGroupGetBits(s_ev) & WIFI_UP) || !s_sta || esp_netif_get_ip_info(s_sta, &ip) != ESP_OK) return 0;
+    return ntohl(ip.ip.addr);
 }
 
 uint32_t net_tailnet_ip(void)

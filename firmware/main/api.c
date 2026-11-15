@@ -54,6 +54,18 @@ bool api_from_tailnet(httpd_req_t *req)
     return vpn != 0 && l == vpn && (p & 0xFFC00000u) == 0x64400000u;
 }
 
+// The request came in on our WiFi (LAN) IP. Only the peers page and its endpoints accept this:
+// it is how to pin a peer when no useful peer can reach the gateway over the tailnet.
+static bool from_lan(httpd_req_t *req)
+{
+    int fd = httpd_req_to_sockfd(req);
+    struct sockaddr_storage local = { 0 };
+    socklen_t ll = sizeof(local);
+    if (getsockname(fd, (struct sockaddr *)&local, &ll) != 0) return false;
+    uint32_t lan = net_lan_ip();
+    return lan != 0 && v4_of(&local) == lan;
+}
+
 uint32_t api_peer_ip(httpd_req_t *req)
 {
     struct sockaddr_storage peer = { 0 };
@@ -76,6 +88,21 @@ esp_err_t api_guard(httpd_req_t *req)
     if (!api_from_tailnet(req)) {
         ESP_LOGW(TAG, "Refused %s from outside the tailnet", req->uri);
         httpd_resp_send_err(req, HTTPD_403_FORBIDDEN, "tailnet only");
+        return ESP_FAIL;
+    }
+    if (!token_ok(req)) {
+        httpd_resp_set_hdr(req, "WWW-Authenticate", "Bearer");
+        httpd_resp_send_err(req, HTTPD_401_UNAUTHORIZED, "bad token");
+        return ESP_FAIL;
+    }
+    return ESP_OK;
+}
+
+// Like api_guard, but the LAN is accepted too (peers page and pinning only). Same token rule.
+static esp_err_t lan_guard(httpd_req_t *req)
+{
+    if (!api_from_tailnet(req) && !from_lan(req)) {
+        httpd_resp_send_err(req, HTTPD_403_FORBIDDEN, "tailnet or LAN only");
         return ESP_FAIL;
     }
     if (!token_ok(req)) {
@@ -353,14 +380,14 @@ static esp_err_t h_call_hangup(httpd_req_t *req)
 // ---------- peers ----------
 static esp_err_t h_peers_get(httpd_req_t *req)
 {
-    if (api_guard(req) != ESP_OK) return ESP_OK;
+    if (lan_guard(req) != ESP_OK) return ESP_OK;
     return send_json(req, peers_json());
 }
 
 // POST /peers/pin and /peers/unpin {"ip": "100.x.y.z"}
 static esp_err_t pin_common(httpd_req_t *req, bool pin)
 {
-    if (api_guard(req) != ESP_OK) return ESP_OK;
+    if (lan_guard(req) != ESP_OK) return ESP_OK;
     char *body = read_body(req, 256);
     if (!body) return ESP_OK;
     cJSON *j = cJSON_Parse(body);
@@ -380,11 +407,12 @@ static esp_err_t pin_common(httpd_req_t *req, bool pin)
 static esp_err_t h_peers_pin(httpd_req_t *req) { return pin_common(req, true); }
 static esp_err_t h_peers_unpin(httpd_req_t *req) { return pin_common(req, false); }
 
-// GET /ui: admin page. Tailnet only; the page's own requests carry the token.
+// GET /ui: admin page, tailnet or LAN; the page's own requests carry the token. Over the
+// LAN only its peers part works (status and firmware stay tailnet only).
 static esp_err_t h_ui(httpd_req_t *req)
 {
-    if (!api_from_tailnet(req)) {
-        httpd_resp_send_err(req, HTTPD_403_FORBIDDEN, "tailnet only");
+    if (!api_from_tailnet(req) && !from_lan(req)) {
+        httpd_resp_send_err(req, HTTPD_403_FORBIDDEN, "tailnet or LAN only");
         return ESP_OK;
     }
     return ui_send_page(req);
@@ -395,7 +423,7 @@ static esp_err_t h_root(httpd_req_t *req)
     // A browser gets the admin page
     char accept[96];
     if (httpd_req_get_hdr_value_str(req, "Accept", accept, sizeof(accept)) != ESP_ERR_NOT_FOUND &&
-        strstr(accept, "text/html") && api_from_tailnet(req)) {
+        strstr(accept, "text/html") && (api_from_tailnet(req) || from_lan(req))) {
         httpd_resp_set_status(req, "302 Found");
         httpd_resp_set_hdr(req, "Location", "/ui");
         return httpd_resp_send(req, NULL, 0);

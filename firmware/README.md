@@ -27,10 +27,15 @@ After that, updates can go over the tailnet (below).
 
 ## Admin page
 
-Open `http://lte-gateway/ui` (or `http://<tailnet IP>/`) in a browser on a tailnet machine. It
-only answers on the tailnet IP, never on the LAN. Paste the `api_token` once (kept in that
-browser). It shows the status, the tailnet peers with a Pin button each, and the firmware
-slots with an Update button.
+Open `http://lte-gateway/ui` (or `http://<tailnet IP>/`) in a browser on a tailnet machine. Paste
+the `api_token` once (kept in that browser). It shows the status, the tailnet peers with a Pin
+button each, and the firmware slots with an Update button.
+
+The page also opens on the LAN, at `http://<LAN IP>/` (shown by `status` on the console), so you
+can pin a peer when none of the peers that matter can reach the gateway over the tailnet. Over
+the LAN only the peers part works (`/peers`, `/peers/pin`, `/peers/unpin`); status, SMS, calls
+and firmware updates stay tailnet only. The same token rule applies, so set `api_token` if other
+people share your WiFi.
 
 ## Pinned peers
 
