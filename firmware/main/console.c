@@ -14,6 +14,7 @@
 #include "esp_console.h"
 #include "esp_timer.h"
 #include "esp_heap_caps.h"
+#include "nvs.h"
 
 static void join_args(int argc, char **argv, int from, char *out, size_t len)
 {
@@ -150,6 +151,31 @@ static int cmd_gain(int argc, char **argv)
 
 static int cmd_peers(int argc, char **argv) { net_print_peers(); return 0; }
 static int cmd_reboot(int argc, char **argv) { gw_restart(); return 0; }
+
+// Drops microlink's cached peer table (NVS namespace "ml_peers") and restarts.
+// The node key is kept, so the gateway rejoins the tailnet as the same device
+// and gets a fresh peer list from the coordination server.
+static int cmd_peers_clear(int argc, char **argv)
+{
+    nvs_handle_t h;
+    esp_err_t err = nvs_open("ml_peers", NVS_READWRITE, &h);
+    if (err == ESP_ERR_NVS_NOT_FOUND) {
+        printf("No cached peers\n");
+        return 0;
+    }
+    if (err == ESP_OK) {
+        err = nvs_erase_all(h);
+        if (err == ESP_OK) err = nvs_commit(h);
+        nvs_close(h);
+    }
+    if (err != ESP_OK) {
+        printf("Failed: %s\n", esp_err_to_name(err));
+        return 1;
+    }
+    printf("Peer cache cleared, restarting\n");
+    gw_restart();
+    return 0;
+}
 static int cmd_setup(int argc, char **argv) { gw_restart_into_setup(); return 0; }
 
 static void reg(const char *name, const char *help, esp_console_cmd_func_t fn)
@@ -173,6 +199,7 @@ void console_start(void)
     reg("set", "set <key> [value]: change a setting (no value = erase)", cmd_set);
     reg("at", "Send an AT command to the modem, e.g. 'at AT+CSQ'", cmd_at);
     reg("peers", "List tailnet peers", cmd_peers);
+    reg("peers_clear", "Forget cached tailnet peers and restart (keeps the node key)", cmd_peers_clear);
     reg("sms", "sms <number> <text>: queue an SMS", cmd_sms);
     reg("inbox", "List received SMS kept in flash", cmd_inbox);
     reg("dial", "dial <number>: start a call", cmd_dial);

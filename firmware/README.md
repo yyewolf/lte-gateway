@@ -119,6 +119,7 @@ Codec levels: `gain <input dB> <output volume>` on the console (saved; default 1
     set <key> <value>   change a setting; then 'reboot'
     at <command>        raw AT command, e.g. at AT+CSQ
     peers               tailnet peers, direct or relayed
+    peers_clear         forget cached peers and restart (keeps the tailnet identity)
     sms <number> <text> queue an SMS
     inbox               received SMS kept in flash
     inbox_del <id>      delete one
