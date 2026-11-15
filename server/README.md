@@ -45,11 +45,16 @@ Copy [`config.example.yaml`](config.example.yaml) to `config.yaml` and fill it i
 
 ## Run with Docker
 
+CI publishes the image to `ghcr.io/yyewolf/ltegtw-server` for amd64 and arm64: `latest` follows `main`, and a
+`server-vX.Y.Z` tag publishes `X.Y.Z` and `X.Y`.
+
 ```sh
 cd deploy
 cp ../config.example.yaml config.yaml   # edit it
-docker compose up -d --build
+docker compose pull && docker compose up -d
 ```
+
+Use `docker compose up -d --build` instead to build the image from source.
 
 The compose file uses host networking, so run it on a machine that is already on the tailnet.
 
