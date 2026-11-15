@@ -1,4 +1,4 @@
-# 16 MB flash. Two app slots for over-the-air updates later, an NVS area for the SMS inbox and outbox.
+# 16 MB flash. Two 4 MB app slots for over-the-air updates (POST /ota), an NVS area for the SMS inbox and outbox.
 # Name,    Type, SubType,  Offset,   Size
 nvs,       data, nvs,      0x9000,   0x10000
 otadata,   data, ota,      0x19000,  0x2000

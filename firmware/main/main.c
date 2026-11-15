@@ -21,6 +21,8 @@
 #include "calls.h"
 #include "events.h"
 #include "voice.h"
+#include "ota.h"
+#include "peers.h"
 
 static const char *TAG = "gw";
 
@@ -114,6 +116,8 @@ void app_main(void)
 {
     board_early_init();               // PWRKEY low before anything else
     ESP_ERROR_CHECK(settings_init());
+    ota_boot_check();                 // new firmware: rolled back unless it reaches the tailnet
+    peers_init();
     board_adc_init();
     modem_init();
     xTaskCreatePinnedToCore(button_task, "button", 3072, NULL, 3, NULL, 1);
@@ -123,6 +127,7 @@ void app_main(void)
     bool setup = take_setup_flag() || !settings_get("wifi_ssid", ssid, sizeof(ssid));
     printf("\nLTE gateway %s. Type 'help' on this console.\n", GW_VERSION);
     if (setup) {
+        ota_mark_valid("setup mode"); // the tailnet can't be checked here
         setup_mode_run();             // never returns
     }
     modem_start();
