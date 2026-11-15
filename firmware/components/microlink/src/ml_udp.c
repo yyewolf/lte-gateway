@@ -98,6 +98,29 @@ static void udp_recv_cb(void *arg, struct udp_pcb *pcb, struct pbuf *p,
     }
 
     sock->rx_count++;
+
+    /* With a callback registered, deliver straight from the tcpip thread.
+     * Callbacks must be short and non-blocking. This avoids the ring, which
+     * could stall for good: if it filled up before a callback was set, the
+     * RX task consumed its semaphore counts without draining, and a full
+     * ring never gives the semaphore again. */
+    microlink_udp_rx_cb_t cb = sock->rx_cb;
+    if (cb) {
+        static uint8_t flat[UDP_MAX_PKT_SIZE];
+        const uint8_t *data;
+        size_t len = p->tot_len;
+        if (p->len == p->tot_len) {
+            data = (const uint8_t *)p->payload;
+        } else {
+            if (len > UDP_MAX_PKT_SIZE) len = UDP_MAX_PKT_SIZE;
+            pbuf_copy_partial(p, flat, len, 0);
+            data = flat;
+        }
+        cb(sock, lwip_to_ip(addr), port, data, len, sock->rx_cb_data);
+        pbuf_free(p);
+        return;
+    }
+
     uint8_t next = (sock->rx_head + 1) % UDP_RX_QUEUE_SIZE;
     if (next == sock->rx_tail) {
         /* Queue full */
@@ -131,7 +154,9 @@ static void udp_rx_task(void *arg) {
     microlink_udp_socket_t *sock = (microlink_udp_socket_t *)arg;
 
     while (sock->rx_running) {
-        if (xSemaphoreTake(sock->rx_sem, pdMS_TO_TICKS(100)) == pdTRUE) {
+        /* Drain on timeout too, so a ring left full can't stall forever. */
+        xSemaphoreTake(sock->rx_sem, pdMS_TO_TICKS(100));
+        {
             while (sock->rx_tail != sock->rx_head) {
                 udp_rx_pkt_t *pkt = &sock->rx_queue[sock->rx_tail];
                 if (pkt->valid && sock->rx_cb) {
@@ -210,6 +235,7 @@ microlink_udp_socket_t *microlink_udp_create(microlink_t *ml, uint16_t local_por
     sock->rx_running = true;
     if (xTaskCreatePinnedToCore(udp_rx_task, "ml_udp_rx", 4096, sock,
                                  configMAX_PRIORITIES - 2, &sock->rx_task, 1) != pdPASS) {
+        ESP_LOGE(TAG, "ml_udp_rx task create failed (callbacks still delivered inline)");
         sock->rx_running = false;
         sock->rx_task = NULL;
     }

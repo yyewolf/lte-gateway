@@ -21,3 +21,7 @@ Local patches (call audio):
   raw udp_* calls, which are made from app tasks; ml_wg_mgr.c holds it while
   processing received WireGuard packets.
 - Per-packet logs (WG RX/TX, UDP RX, DERP TX) are debug level instead of info.
+- ml_udp.c calls the registered RX callback directly from the tcpip thread.
+  The old ring + task path could stall for good once the ring filled before
+  a callback was set (Discord->phone audio never reached voice.c). The ring
+  is kept for polling users and now also drains on timeout.
