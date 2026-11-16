@@ -1791,17 +1791,6 @@
 			(embedded_fonts no)
 		)
 	)
-	(text "Bring-up options (DNP = footprint only, fit it if needed):\nR509 0R bridges AVDD_IN -> AVDD. If 3V3 noise reaches the\naudio, remove R509 and fit U502 + C513 (3.0 V LDO).\nR510 0R is the only link between GNDA and GND: lift it to\ntest star grounding.\nC514/C515/C516: RF filter on the downlink divider,\n100 pF to 1 nF, if LTE buzz shows up.\nTest pads TP501-TP508: probe each stage during a call.\nTP509: ground loop for the scope clip."
-		(exclude_from_sim no)
-		(at 15.24 167.64 0)
-		(effects
-			(font
-				(size 1.27 1.27)
-			)
-			(justify left top)
-		)
-		(uuid "07de2b23-4fe7-4109-b7be-64b54275ed7b")
-	)
 	(text "ES8311 audio codec"
 		(exclude_from_sim no)
 		(at 15.24 17.78 0)
@@ -1813,53 +1802,6 @@
 			(justify left top)
 		)
 		(uuid "270ca3af-a7bb-4f16-a96d-4cf5b12f1437")
-	)
-	(text "Modem earpiece out -> codec mic in"
-		(exclude_from_sim no)
-		(at 210.82 57.15 0)
-		(effects
-			(font
-				(size 1.27 1.27)
-				(bold yes)
-			)
-			(justify left top)
-		)
-		(uuid "6bc4eed7-e677-48a6-9426-6b1e7777861f")
-	)
-	(text "Codec line out -> modem mic in"
-		(exclude_from_sim no)
-		(at 185.42 140.97 0)
-		(effects
-			(font
-				(size 1.27 1.27)
-				(bold yes)
-			)
-			(justify left top)
-		)
-		(uuid "99654352-2fab-4ea2-93d0-98caa58cef5f")
-	)
-	(text "The modem has no digital audio, only an analog earpiece\noutput (SPK) and a mic input (MIC). The ES8311 converts\nbetween those analog signals and I2S for the ESP32.\n\nModem -> ESP32: SPK1P/N -> 10k + 2.2k divider (about -20 dB)\n-> 1 uF -> codec MIC1P/N. Codec PGA gain and AT+CLVL set the\nfinal level.\nESP32 -> modem: codec OUTP/N -> 10k + 220R divider (about\n-40 dB, line level down to mic level) -> 1 uF -> modem\nMICP/N. Tune with AT+CMICGAIN and the codec volume.\nDivider values are starting points: check levels on the bench.\n\nCodec I2C address 0x18 (CE tied to GND)."
-		(exclude_from_sim no)
-		(at 15.24 129.54 0)
-		(effects
-			(font
-				(size 1.27 1.27)
-			)
-			(justify left top)
-		)
-		(uuid "bbf935f0-0346-49cb-bf5d-d56ba85e670e")
-	)
-	(text "Analog supply (AVDD) and ground options"
-		(exclude_from_sim no)
-		(at 99.06 137.16 0)
-		(effects
-			(font
-				(size 1.27 1.27)
-				(bold yes)
-			)
-			(justify left top)
-		)
-		(uuid "c531cca8-24c9-45eb-928d-7710d00cf956")
 	)
 	(junction
 		(at 233.68 124.46)

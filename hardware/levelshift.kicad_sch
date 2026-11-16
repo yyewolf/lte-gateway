@@ -1038,17 +1038,6 @@
 			(embedded_fonts no)
 		)
 	)
-	(text "The A7670E I/O runs at 1.8 V (its VDD_1V8 output), the ESP32-S3 at 3.3 V.\nTXS0108E (U401) translates 8 lines in both directions automatically: A side = 1.8 V\n(VCCA, must be the lower supply), B side = 3.3 V. OE is tied to VDD_1V8, so the\nshifter only turns on once the modem is running. While the modem is off the B side\nfloats: enable the ESP32 internal pull-ups/downs on these pins in firmware.\nTXS0108E is fine for UART speeds; it does not like strong pull-ups on its lines.\nC401 / C402: 100 nF on VCCA / VCCB, next to the pins."
-		(exclude_from_sim no)
-		(at 15.24 27.94 0)
-		(effects
-			(font
-				(size 1.27 1.27)
-			)
-			(justify left top)
-		)
-		(uuid "0e98f852-499f-4258-977a-612bb6ee5047")
-	)
 	(text "1.8 V <-> 3.3 V level shifter"
 		(exclude_from_sim no)
 		(at 15.24 17.78 0)

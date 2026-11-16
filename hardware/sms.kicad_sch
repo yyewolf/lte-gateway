@@ -11,18 +11,7 @@
 		(comment 2 "LCSC part numbers are in each symbol (LCSC Part field).")
 	)
 	(lib_symbols)
-	(text "USB-C input + protection\n3.3 V buck, modem VBAT + switch"
-		(exclude_from_sim no)
-		(at 25.4 64.26 0)
-		(effects
-			(font
-				(size 1.27 1.27)
-			)
-			(justify left top)
-		)
-		(uuid "062892ba-ccf6-4425-ab26-37083951080f")
-	)
-	(text "LTE SMS + voice gateway (ESP32-S3 + SIMCom A7683E)"
+	(text "LTE SMS + voice gateway (ESP32-S3 + SIMCom A7670E-LASE)"
 		(exclude_from_sim no)
 		(at 25.4 20.32 0)
 		(effects
@@ -33,61 +22,6 @@
 			(justify left top)
 		)
 		(uuid "29a91f7d-864d-4a09-aa97-f1f65a4b9180")
-	)
-	(text "ESP32-S3-WROOM-1 module\nreset/boot, decoupling, LEDs"
-		(exclude_from_sim no)
-		(at 93.98 64.26 0)
-		(effects
-			(font
-				(size 1.27 1.27)
-			)
-			(justify left top)
-		)
-		(uuid "65596890-1864-43d7-8fe2-33f9a42b0e8e")
-	)
-	(text "A7683E, VBAT caps, PWRKEY/RESET\nSIM, antenna, modem USB-C"
-		(exclude_from_sim no)
-		(at 238.76 64.26 0)
-		(effects
-			(font
-				(size 1.27 1.27)
-			)
-			(justify left top)
-		)
-		(uuid "6776573b-4884-4993-9f1c-a6c7d03c1c69")
-	)
-	(text "Block diagram:\n  USB-C 5 V -> 3.3 V buck (ESP32, codec, shifter) and 3.8 V buck + load switch (modem VBAT, ESP32-switched)\n  ESP32-S3 <-> TXS0108E <-> A7683E UART + control (1.8 V modem I/O)\n  ESP32-S3 <-> I2S/I2C <-> ES8311 <-> analog audio <-> A7683E SPK/MIC\n  A7683E -> nano-SIM, u.FL LTE antenna, separate USB-C for modem firmware updates\n\nSignals between sheets go through hierarchical sheet pins, wired below. Power rails\n(+5V, +3V3, +3V8, +1V8, GND) are power symbols and connect by name on every sheet."
-		(exclude_from_sim no)
-		(at 25.4 35.56 0)
-		(effects
-			(font
-				(size 1.27 1.27)
-			)
-			(justify left top)
-		)
-		(uuid "86e65190-8f1a-4f89-9675-34707056b8f6")
-	)
-	(text "TXS0108E 1.8 V <-> 3.3 V\nUART + status lines"
-		(exclude_from_sim no)
-		(at 167.64 66.8 0)
-		(effects
-			(font
-				(size 1.27 1.27)
-			)
-			(justify left top)
-		)
-		(uuid "92ca9c6c-4ba0-4106-8c77-b43da436067a")
-	)
-	(text "ES8311 codec + analog\naudio to/from the modem"
-		(exclude_from_sim no)
-		(at 167.64 143.51 0)
-		(effects
-			(font
-				(size 1.27 1.27)
-			)
-			(justify left top)
-		)
-		(uuid "d60d8689-a8ef-434c-a998-6d09add0f46e")
 	)
 	(wire
 		(pts
