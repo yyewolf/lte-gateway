@@ -5,6 +5,7 @@
 #include "board.h"
 #include "settings.h"
 #include <string.h>
+#include <stdio.h>
 #include <sys/socket.h>
 #include <netinet/in.h>
 #include "esp_log.h"
@@ -19,8 +20,11 @@
 #include "peers.h"
 #include "ota.h"
 #include "ui.h"
+#include "logbuf.h"
 #include "microlink.h"
 #include <stdlib.h>
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
 
 static const char *TAG = "api";
 static httpd_handle_t s_httpd;
@@ -54,8 +58,8 @@ bool api_from_tailnet(httpd_req_t *req)
     return vpn != 0 && l == vpn && (p & 0xFFC00000u) == 0x64400000u;
 }
 
-// The request came in on our WiFi (LAN) IP. Only the peers page and its endpoints accept this:
-// it is how to pin a peer when no useful peer can reach the gateway over the tailnet.
+// The request came in on our WiFi (LAN) IP. The peers, status, logs and reboot endpoints accept
+// this: they are how to look at and recover a gateway that has dropped off the tailnet.
 static bool from_lan(httpd_req_t *req)
 {
     int fd = httpd_req_to_sockfd(req);
@@ -98,7 +102,7 @@ esp_err_t api_guard(httpd_req_t *req)
     return ESP_OK;
 }
 
-// Like api_guard, but the LAN is accepted too (peers page and pinning only). Same token rule.
+// Like api_guard, but the LAN is accepted too (peers, status, logs, reboot). Same token rule.
 static esp_err_t lan_guard(httpd_req_t *req)
 {
     if (!api_from_tailnet(req) && !from_lan(req)) {
@@ -137,7 +141,7 @@ static const char *reg_name(int reg)
 
 static esp_err_t h_status(httpd_req_t *req)
 {
-    if (api_guard(req) != ESP_OK) return ESP_OK;
+    if (lan_guard(req) != ESP_OK) return ESP_OK;
     net_status_t n;
     modem_status_t m;
     net_get_status(&n);
@@ -407,8 +411,67 @@ static esp_err_t pin_common(httpd_req_t *req, bool pin)
 static esp_err_t h_peers_pin(httpd_req_t *req) { return pin_common(req, true); }
 static esp_err_t h_peers_unpin(httpd_req_t *req) { return pin_common(req, false); }
 
+// GET /logs[?since=<pos>&boot=<id>]: the ESP_LOG output kept in RAM, as text. X-Log-Next is the
+// position to ask for next time and X-Log-Boot the boot id; a different boot id restarts from 0.
+static esp_err_t h_logs(httpd_req_t *req)
+{
+    if (lan_guard(req) != ESP_OK) return ESP_OK;
+    uint32_t since = 0;
+    char q[64], v[16];
+    char boot[12];
+    snprintf(boot, sizeof(boot), "%08lx", (unsigned long)logbuf_boot_id());
+    if (httpd_req_get_url_query_str(req, q, sizeof(q)) == ESP_OK) {
+        if (httpd_query_key_value(q, "since", v, sizeof(v)) == ESP_OK) since = strtoul(v, NULL, 10);
+        if (httpd_query_key_value(q, "boot", v, sizeof(v)) == ESP_OK && strcmp(v, boot) != 0) since = 0;
+    }
+    size_t cap = logbuf_capacity();
+    char *buf = cap ? heap_caps_malloc(cap, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT) : NULL;
+    if (!buf && cap) buf = malloc(cap);
+    if (!buf) return send_err(req, "503 Service Unavailable", "log buffer unavailable");
+    uint32_t next;
+    size_t n = logbuf_read(since, buf, cap, &next);
+    char next_s[12];
+    snprintf(next_s, sizeof(next_s), "%lu", (unsigned long)next);
+    httpd_resp_set_type(req, "text/plain; charset=utf-8");
+    httpd_resp_set_hdr(req, "Cache-Control", "no-store");
+    httpd_resp_set_hdr(req, "X-Log-Next", next_s);
+    httpd_resp_set_hdr(req, "X-Log-Boot", boot);
+    esp_err_t r = httpd_resp_send(req, buf, n);
+    free(buf);
+    return r;
+}
+
+static void reboot_task(void *arg)
+{
+    vTaskDelay(pdMS_TO_TICKS(1000));          // let the HTTP response go out
+    gw_restart();
+}
+
+// POST /reboot: clean modem shutdown and restart. From the LAN the api_token setting must be
+// set (and sent): a restart is too disruptive to leave open to anyone on the WiFi.
+static esp_err_t h_reboot(httpd_req_t *req)
+{
+    char token[80];
+    if (!api_from_tailnet(req) && from_lan(req) && !settings_get("api_token", token, sizeof(token))) {
+        ESP_LOGW(TAG, "Refused LAN reboot: no api_token set");
+        return send_err(req, "403 Forbidden", "set the api_token setting to reboot from the LAN");
+    }
+    if (lan_guard(req) != ESP_OK) return ESP_OK;
+    static bool s_rebooting;
+    if (!s_rebooting) {
+        uint32_t ip = api_peer_ip(req);
+        ESP_LOGW(TAG, "Reboot requested by %lu.%lu.%lu.%lu", (unsigned long)(ip >> 24), (unsigned long)(ip >> 16 & 255),
+                 (unsigned long)(ip >> 8 & 255), (unsigned long)(ip & 255));
+        s_rebooting = true;
+        xTaskCreatePinnedToCore(reboot_task, "reboot", 4096, NULL, 5, NULL, 1);
+    }
+    cJSON *r = cJSON_CreateObject();
+    cJSON_AddStringToObject(r, "state", "restarting");
+    return send_json(req, r);
+}
+
 // GET /ui: admin page, tailnet or LAN; the page's own requests carry the token. Over the
-// LAN only its peers part works (status and firmware stay tailnet only).
+// LAN everything but firmware updates works.
 static esp_err_t h_ui(httpd_req_t *req)
 {
     if (!api_from_tailnet(req) && !from_lan(req)) {
@@ -431,7 +494,7 @@ static esp_err_t h_root(httpd_req_t *req)
     if (api_guard(req) != ESP_OK) return ESP_OK;
     httpd_resp_set_type(req, "text/plain");
     return httpd_resp_sendstr(req, "LTE gateway " GW_VERSION ". Endpoints:\n"
-                                   "  GET /status\n"
+                                   "  GET /status  (also from the LAN)\n"
                                    "  POST /sms {\"to\":\"+33...\",\"text\":\"...\"}\n"
                                    "  GET /sms/outbox/<id>\n"
                                    "  GET /sms/inbox[?after=<id>&limit=<n>]\n"
@@ -442,9 +505,11 @@ static esp_err_t h_root(httpd_req_t *req)
                                    "  POST /call/answer\n"
                                    "  POST /call/hangup\n"
                                    "  WebSocket /events\n"
-                                   "  GET /peers\n"
+                                   "  GET /peers  (also from the LAN)\n"
                                    "  POST /peers/pin {\"ip\":\"100.x.y.z\"}\n"
                                    "  POST /peers/unpin {\"ip\":\"100.x.y.z\"}\n"
+                                   "  GET /logs[?since=<pos>&boot=<id>]  (also from the LAN)\n"
+                                   "  POST /reboot  (also from the LAN, needs api_token there)\n"
                                    "  GET /ota\n"
                                    "  POST /ota  (body: build/lte_gateway.bin)\n"
                                    "  POST /ota/rollback\n"
@@ -480,9 +545,11 @@ void api_start(void)
         { .uri = "/peers/pin", .method = HTTP_POST, .handler = h_peers_pin },
         { .uri = "/peers/unpin", .method = HTTP_POST, .handler = h_peers_unpin },
         { .uri = "/ui", .method = HTTP_GET, .handler = h_ui },
+        { .uri = "/logs", .method = HTTP_GET, .handler = h_logs },
+        { .uri = "/reboot", .method = HTTP_POST, .handler = h_reboot },
     };
     for (size_t i = 0; i < sizeof(uris) / sizeof(uris[0]); i++) httpd_register_uri_handler(s_httpd, &uris[i]);
     events_register(s_httpd);
     ota_register(s_httpd);
-    ESP_LOGI(TAG, "API on port 80 (tailnet only)");
+    ESP_LOGI(TAG, "API on port 80 (tailnet; peers, status, logs and reboot also on the LAN)");
 }

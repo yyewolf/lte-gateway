@@ -23,6 +23,7 @@
 #include "voice.h"
 #include "ota.h"
 #include "peers.h"
+#include "logbuf.h"
 
 static const char *TAG = "gw";
 
@@ -115,6 +116,7 @@ static void button_task(void *arg)
 void app_main(void)
 {
     board_early_init();               // PWRKEY low before anything else
+    logbuf_init();                    // copy of the log for GET /logs
     ESP_ERROR_CHECK(settings_init());
     ota_boot_check();                 // new firmware: rolled back unless it reaches the tailnet
     peers_init();

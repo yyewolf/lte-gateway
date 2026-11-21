@@ -1,4 +1,4 @@
-// HTTP API, reachable only through the tailnet.
+// HTTP API on the tailnet. Peers, status, logs and reboot are also reachable from the LAN.
 #pragma once
 #include "esp_http_server.h"
 void api_start(void);
