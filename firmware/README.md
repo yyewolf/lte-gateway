@@ -28,14 +28,32 @@ After that, updates can go over the tailnet (below).
 ## Admin page
 
 Open `http://lte-gateway/ui` (or `http://<tailnet IP>/`) in a browser on a tailnet machine. Paste
-the `api_token` once (kept in that browser). It shows the status, the tailnet peers with a Pin
-button each, and the firmware slots with an Update button.
+the `api_token` once (kept in that browser). It shows the status with a Restart button, a live
+log, the tailnet peers with a Pin button each, and the firmware slots with an Update button.
 
 The page also opens on the LAN, at `http://<LAN IP>/` (shown by `status` on the console), so you
-can pin a peer when none of the peers that matter can reach the gateway over the tailnet. Over
-the LAN only the peers part works (`/peers`, `/peers/pin`, `/peers/unpin`); status, SMS, calls
-and firmware updates stay tailnet only. The same token rule applies, so set `api_token` if other
-people share your WiFi.
+can see what is wrong and recover the gateway when it has dropped off the tailnet. Over the LAN
+the status, log, restart and peers parts work (`/status`, `/logs`, `/reboot`, `/peers`,
+`/peers/pin`, `/peers/unpin`); SMS, calls and firmware updates stay tailnet only. The same token
+rule applies, so set `api_token` if other people share your WiFi. Restarting from the LAN is
+refused unless `api_token` is set.
+
+## Log and restart without a USB cable
+
+The gateway keeps the last 64 KB of its log (what `ESP_LOG` prints on the USB console, without
+the colours) in RAM. Plain `printf` output from console commands is not included, and the log
+starts over at each restart.
+
+    curl -H "Authorization: Bearer $TOKEN" http://<LAN IP>/logs
+    curl -H "Authorization: Bearer $TOKEN" "http://<LAN IP>/logs?since=18234&boot=5f3a91c2"   # only what is new
+
+The response headers `X-Log-Next` and `X-Log-Boot` are the values to send back as `since` and
+`boot` next time. A different `boot` means the gateway restarted, and you get its log from the
+start. The admin page's Log section polls this every 2 s.
+
+    curl -X POST -H "Authorization: Bearer $TOKEN" http://<LAN IP>/reboot   # {"state": "restarting"}
+
+This shuts the modem down cleanly, then restarts, like `reboot` on the console.
 
 ## Pinned peers
 
@@ -103,12 +121,14 @@ The setup page exists only in setup mode, so nothing on your LAN can reach it la
 - Red: blinking = setup mode, on = not on the tailnet yet, off = on the tailnet.
 - Green: on = modem registered on the LTE network.
 
-## API (tailnet only)
+## API
 
     curl http://lte-gateway/status          # MagicDNS name, or the 100.x.y.z IP
 
 Requests are refused (403) unless they arrive on the board's tailnet IP from a 100.64.0.0/10
-address. If `api_token` is set, add `-H "Authorization: Bearer <token>"`.
+address. The exceptions are `/status`, `/logs`, `/reboot` and the peers endpoints, which also
+answer on the LAN IP (see the admin page section above). If `api_token` is set, add
+`-H "Authorization: Bearer <token>"`.
 
 ## SMS API
 
